@@ -1,8 +1,87 @@
+/*===============================================================================================
+CFPT - Projet : Générateur de fonction
+Fichier      : epot.h
+Description  : Driver des potentiomètres numériques MCP45HV51 (Gain / Offset)
+===============================================================================================*/
+
 #ifndef EPOT_H
 #define EPOT_H
 
+/*===============================================================================================
+INCLUDES
+===============================================================================================*/
+#include <stdbool.h>
 #include <stdint.h>
+
 #include "esp_err.h"
 #include "driver/i2c_master.h"
+
+/*===============================================================================================
+DEFINES
+===============================================================================================*/
+#define EPOT_I2C_SPEED_HZ          100000U
+#define EPOT_I2C_TIMEOUT_MS        100U
+
+#define EPOT_I2C_ADDRESS_MIN       0x3CU
+#define EPOT_I2C_ADDRESS_MAX       0x3FU
+
+#define EPOT_RAW_MIN               0U
+#define EPOT_RAW_MAX               255U
+
+/*===============================================================================================
+TYPES
+===============================================================================================*/
+typedef enum
+{
+    EPOT_CHANNEL_GAIN = 0,
+    EPOT_CHANNEL_OFFSET
+} epot_channel_t;
+
+/*===============================================================================================
+PROTOTYPES
+===============================================================================================*/
+/**
+ * @brief Initialise les deux MCP45HV51 sur un bus I2C déjà créé.
+ *
+ * Les adresses sont fournies par l'application afin de garder ce module indépendant
+ * du câblage des broches A1/A0 des deux potentiomètres numériques.
+ *
+ * @param bus_handle      Handle du bus I2C ESP-IDF.
+ * @param gain_address    Adresse I2C 7 bits du MCP45HV51 utilisé pour le gain.
+ * @param offset_address  Adresse I2C 7 bits du MCP45HV51 utilisé pour l'offset.
+ *
+ * @return ESP_OK si l'initialisation a réussi, sinon un code d'erreur ESP-IDF.
+ */
+esp_err_t Epot_Init(i2c_master_bus_handle_t bus_handle,
+                    uint8_t gain_address,
+                    uint8_t offset_address);
+
+/**
+ * @brief Retire les deux périphériques MCP45HV51 du bus I2C.
+ */
+esp_err_t Epot_Deinit(void);
+
+/**
+ * @brief Ecrit directement la position du curseur d'un potentiomètre numérique.
+ *
+ * @param channel EPOT_CHANNEL_GAIN ou EPOT_CHANNEL_OFFSET.
+ * @param value   Valeur brute du curseur, de 0 à 255.
+ */
+esp_err_t Epot_SetRaw(epot_channel_t channel, uint8_t value);
+
+/**
+ * @brief Ecrit la valeur brute du potentiomètre de gain.
+ */
+esp_err_t Epot_SetGainRaw(uint8_t value);
+
+/**
+ * @brief Ecrit la valeur brute du potentiomètre d'offset.
+ */
+esp_err_t Epot_SetOffsetRaw(uint8_t value);
+
+/**
+ * @brief Indique si le module EPOT est initialisé.
+ */
+bool Epot_IsInitialized(void);
 
 #endif /* EPOT_H */
