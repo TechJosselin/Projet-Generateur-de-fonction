@@ -14,6 +14,7 @@ INCLUDES
 
 #include "esp_err.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "driver/gpio.h"
 
 #include "hardware_config.h"
@@ -61,23 +62,23 @@ static const char *ResetReasonToString(esp_reset_reason_t reason)
 {
     switch (reason)
     {
-        case ESP_RST_UNKNOWN:   return "UNKNOWN";
-        case ESP_RST_POWERON:   return "POWERON";
-        case ESP_RST_EXT:       return "EXT";
-        case ESP_RST_SW:        return "SW";
-        case ESP_RST_PANIC:     return "PANIC";
-        case ESP_RST_INT_WDT:   return "INT_WDT";
-        case ESP_RST_TASK_WDT:  return "TASK_WDT";
-        case ESP_RST_WDT:       return "WDT";
-        case ESP_RST_DEEPSLEEP: return "DEEPSLEEP";
-        case ESP_RST_BROWNOUT:  return "BROWNOUT";
-        case ESP_RST_SDIO:      return "SDIO";
-        case ESP_RST_USB:       return "USB";
-        case ESP_RST_JTAG:      return "JTAG";
-        case ESP_RST_EFUSE:     return "EFUSE";
-        case ESP_RST_PWR_GLITCH:return "PWR_GLITCH";
-        case ESP_RST_CPU_LOCKUP:return "CPU_LOCKUP";
-        default:                return "OTHER";
+        case ESP_RST_UNKNOWN:    return "UNKNOWN";
+        case ESP_RST_POWERON:    return "POWERON";
+        case ESP_RST_EXT:        return "EXT";
+        case ESP_RST_SW:         return "SW";
+        case ESP_RST_PANIC:      return "PANIC";
+        case ESP_RST_INT_WDT:    return "INT_WDT";
+        case ESP_RST_TASK_WDT:   return "TASK_WDT";
+        case ESP_RST_WDT:        return "WDT";
+        case ESP_RST_DEEPSLEEP:  return "DEEPSLEEP";
+        case ESP_RST_BROWNOUT:   return "BROWNOUT";
+        case ESP_RST_SDIO:       return "SDIO";
+        case ESP_RST_USB:        return "USB";
+        case ESP_RST_JTAG:       return "JTAG";
+        case ESP_RST_EFUSE:      return "EFUSE";
+        case ESP_RST_PWR_GLITCH: return "PWR_GLITCH";
+        case ESP_RST_CPU_LOCKUP: return "CPU_LOCKUP";
+        default:                 return "OTHER";
     }
 }
 
@@ -102,7 +103,7 @@ void app_main(void)
 {
     esp_err_t err;
     esp_reset_reason_t reset_reason;
-    unsigned int heartbeat_count = 0;
+    unsigned long heartbeat_count = 0;
 
     reset_reason = esp_reset_reason();
 
@@ -113,17 +114,20 @@ void app_main(void)
         fflush(stdout);
     }
 
+    /*
+     * Laisse le temps a Windows et au moniteur serie de rouvrir le port USB
+     * apres un flash ou un reset USB. La LED reste allumee pendant l'attente.
+     */
+    StatusLedSet(1);
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    StatusLedSet(0);
+
     printf("\n========================================\n");
     printf("DEMARRAGE GENERATEUR DE FONCTION\n");
     printf("Reset reason : %d (%s)\n", (int)reset_reason, ResetReasonToString(reset_reason));
+    printf("Uptime au debut du diagnostic : %lld ms\n", (long long)(esp_timer_get_time() / 1000LL));
     printf("========================================\n");
     fflush(stdout);
-
-    /* Impulsion visuelle de démarrage. */
-    StatusLedSet(1);
-    vTaskDelay(pdMS_TO_TICKS(250));
-    StatusLedSet(0);
-    vTaskDelay(pdMS_TO_TICKS(250));
 
     printf("Initialisation systeme...\n");
     fflush(stdout);
@@ -136,15 +140,15 @@ void app_main(void)
 
     printf("Initialisation systeme OK.\n");
     printf("Bus I2C partage pret pour OLED, EEPROM et EPOT.\n");
-    printf("Heartbeat actif : LED GPIO15, periode 1 seconde.\n");
+    printf("Diagnostic heartbeat actif.\n");
     fflush(stdout);
 
     /*
-     * Boucle de diagnostic temporaire :
-     * - la LED change d'etat toutes les 500 ms ;
-     * - vTaskDelay() laisse le CPU aux autres taches et au watchdog ;
-     * - un message periodique permet de voir la console meme si le moniteur
-     *   serie est ouvert apres le demarrage de la carte.
+     * Diagnostic de redemarrage :
+     * - le compteur augmente a chaque heartbeat ;
+     * - l'uptime repart a zero apres un vrai reset ;
+     * - la LED clignote a 1 Hz ;
+     * - vTaskDelay() laisse le CPU aux autres taches et au watchdog.
      */
     while (1)
     {
@@ -155,11 +159,13 @@ void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(500));
 
         heartbeat_count++;
-        if ((heartbeat_count % 2U) == 0U)
-        {
-            printf("Heartbeat OK - reset reason : %s\n", ResetReasonToString(reset_reason));
-            fflush(stdout);
-        }
+
+        printf(
+            "Heartbeat #%lu - uptime : %lld ms - reset : %s\n",
+            heartbeat_count,
+            (long long)(esp_timer_get_time() / 1000LL),
+            ResetReasonToString(reset_reason));
+        fflush(stdout);
     }
 }
 
