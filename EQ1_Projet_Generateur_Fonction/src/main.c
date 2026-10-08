@@ -19,6 +19,12 @@ INCLUDES
 
 #include "hardware_config.h"
 #include "initialisation.h"
+#include "epot.h"
+
+/*===============================================================================================
+VARIABLES LOCALES
+===============================================================================================*/
+static bool gEpotCommunicationOk = false;
 
 /*===============================================================================================
 PROTOTYPES DE FONCTIONS LOCALES
@@ -28,6 +34,7 @@ static void StatusLedSet(int enabled);
 static const char *ResetReasonToString(esp_reset_reason_t reason);
 static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long heartbeat_count);
 static void FatalBlinkLoop(const char *message, esp_err_t error);
+static void TestEpotCommunication(void);
 
 /*===============================================================================================
 FONCTIONS LOCALES
@@ -87,6 +94,7 @@ static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long hea
 {
     const bool system_initialized = System_IsInitialized();
     const i2c_master_bus_handle_t i2c_bus = System_GetI2cBus();
+    const bool epot_initialized = Epot_IsInitialized();
 
     printf("\n========================================\n");
     printf("ETAT SYSTEME\n");
@@ -96,6 +104,10 @@ static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long hea
     printf("System_Init   : %s\n", system_initialized ? "OK" : "NON INITIALISE");
     printf("Bus I2C       : %s\n", (i2c_bus != NULL) ? "READY" : "NULL");
     printf("Handle I2C    : %p\n", (void *)i2c_bus);
+    printf("Driver EPOT   : %s\n", epot_initialized ? "INITIALISE" : "NON INITIALISE");
+    printf("EPOT Gain     : adresse 0x%02X\n", SYSTEM_EPOT_GAIN_I2C_ADDRESS);
+    printf("EPOT Offset   : adresse 0x%02X\n", SYSTEM_EPOT_OFFSET_I2C_ADDRESS);
+    printf("Test EPOT I2C : %s\n", gEpotCommunicationOk ? "OK" : "ECHEC / NON TESTE");
     printf("========================================\n\n");
     fflush(stdout);
 }
@@ -112,6 +124,33 @@ static void FatalBlinkLoop(const char *message, esp_err_t error)
         StatusLedSet(0);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
+}
+
+static void TestEpotCommunication(void)
+{
+    esp_err_t gain_err;
+    esp_err_t offset_err;
+
+    gain_err = Epot_SetGainRaw(SYSTEM_EPOT_TEST_RAW_VALUE);
+    offset_err = Epot_SetOffsetRaw(SYSTEM_EPOT_TEST_RAW_VALUE);
+
+    if ((gain_err == ESP_OK) && (offset_err == ESP_OK))
+    {
+        gEpotCommunicationOk = true;
+        printf("Test EPOT I2C OK : Gain=%u, Offset=%u\n",
+               SYSTEM_EPOT_TEST_RAW_VALUE,
+               SYSTEM_EPOT_TEST_RAW_VALUE);
+    }
+    else
+    {
+        gEpotCommunicationOk = false;
+        printf("Test EPOT I2C ECHEC.\n");
+        printf("  Gain   : %s\n", esp_err_to_name(gain_err));
+        printf("  Offset : %s\n", esp_err_to_name(offset_err));
+        printf("Verifier le cablage, les pull-up et les adresses A1/A0 des MCP45HV51.\n");
+    }
+
+    fflush(stdout);
 }
 
 /*===============================================================================================
@@ -132,10 +171,7 @@ void app_main(void)
         fflush(stdout);
     }
 
-    /*
-     * Laisse le temps a Windows et au moniteur serie de rouvrir le port USB
-     * apres un flash ou un reset USB. La LED reste allumee pendant l'attente.
-     */
+    /* Laisse le temps au port USB d'être réouvert après le flash. */
     StatusLedSet(1);
     vTaskDelay(pdMS_TO_TICKS(3000));
     StatusLedSet(0);
@@ -148,8 +184,6 @@ void app_main(void)
     fflush(stdout);
 
     printf("Initialisation systeme...\n");
-    fflush(stdout);
-
     err = System_Init();
     if (err != ESP_OK)
     {
@@ -157,23 +191,27 @@ void app_main(void)
     }
 
     printf("Initialisation systeme OK.\n");
-    printf("Bus I2C partage pret pour OLED, EEPROM et EPOT.\n");
+    printf("Bus I2C partage pret.\n");
+
+    printf("Initialisation EPOT...\n");
+    err = Epot_Init(System_GetI2cBus(),
+                    SYSTEM_EPOT_GAIN_I2C_ADDRESS,
+                    SYSTEM_EPOT_OFFSET_I2C_ADDRESS);
+    if (err != ESP_OK)
+    {
+        FatalBlinkLoop("Epot_Init", err);
+    }
+
+    printf("Driver EPOT initialise.\n");
+    TestEpotCommunication();
     printf("Diagnostic heartbeat actif.\n");
     fflush(stdout);
 
-    /*
-     * Diagnostic permanent :
-     * - un heartbeat est affiche chaque seconde ;
-     * - l'etat de System_Init et du bus I2C est affiche a chaque heartbeat ;
-     * - un resume complet est affiche toutes les 5 secondes ;
-     * - le compteur et l'uptime permettent de detecter un vrai redemarrage ;
-     * - la LED clignote a 1 Hz ;
-     * - vTaskDelay() laisse le CPU aux autres taches et au watchdog.
-     */
     while (1)
     {
         const bool system_initialized = System_IsInitialized();
         const i2c_master_bus_handle_t i2c_bus = System_GetI2cBus();
+        const bool epot_initialized = Epot_IsInitialized();
 
         StatusLedSet(1);
         vTaskDelay(pdMS_TO_TICKS(500));
@@ -184,12 +222,14 @@ void app_main(void)
         heartbeat_count++;
 
         printf(
-            "Heartbeat #%lu - uptime : %lld ms - reset : %s - System_Init : %s - I2C : %s\n",
+            "Heartbeat #%lu - uptime : %lld ms - reset : %s - System : %s - I2C : %s - EPOT : %s - EPOT I2C : %s\n",
             heartbeat_count,
             (long long)(esp_timer_get_time() / 1000LL),
             ResetReasonToString(reset_reason),
             system_initialized ? "OK" : "ERREUR",
-            (i2c_bus != NULL) ? "READY" : "NULL");
+            (i2c_bus != NULL) ? "READY" : "NULL",
+            epot_initialized ? "INIT" : "ERREUR",
+            gEpotCommunicationOk ? "OK" : "ECHEC");
         fflush(stdout);
 
         if ((heartbeat_count % 5UL) == 0UL)
