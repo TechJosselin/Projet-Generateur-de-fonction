@@ -55,6 +55,27 @@ ECRAN OLED SH1106 1.3\" I2C
 #define SYSTEM_OLED_PROBE_TIMEOUT_MS            50U
 
 /*===============================================================================================
+ENCODEUR ROTATIF PEC12R-4220F-S0024
+===============================================================================================*/
+/*
+ * Câblage XIAO ESP32-C6 utilisé pour le prototype :
+ *   - A / CLK  -> D1 / GPIO1
+ *   - B / DT   -> D2 / GPIO2
+ *   - Commun   -> GND
+ *   - SW       -> D0 / GPIO0
+ *   - SW GND   -> GND
+ *
+ * Les entrées utilisent les pull-up internes de l'ESP32-C6.
+ * Le décodage quadrature est réalisé sous interruption sur A et B.
+ */
+#define SYSTEM_ENCODER_A_GPIO                   GPIO_NUM_1
+#define SYSTEM_ENCODER_B_GPIO                   GPIO_NUM_2
+#define SYSTEM_ENCODER_BUTTON_GPIO              GPIO_NUM_0
+#define SYSTEM_ENCODER_EDGES_PER_STEP           4U
+#define SYSTEM_ENCODER_REVERSE_DIRECTION        0
+#define SYSTEM_ENCODER_POLL_PERIOD_MS           10U
+
+/*===============================================================================================
 POTENTIOMETRES NUMERIQUES MCP45HV51
 ===============================================================================================*/
 #define SYSTEM_EPOT_GAIN_I2C_ADDRESS            0x3EU

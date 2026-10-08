@@ -19,6 +19,7 @@ INCLUDES
 
 #include "hardware_config.h"
 #include "initialisation.h"
+#include "encodeur.h"
 #include "epot.h"
 #include "oled.h"
 
@@ -38,6 +39,7 @@ static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long hea
 static void FatalBlinkLoop(const char *message, esp_err_t error);
 static void TestEpotCommunication(void);
 static void InitAndTestOled(void);
+static void InitEncoder(void);
 
 /*===============================================================================================
 FONCTIONS LOCALES
@@ -99,6 +101,8 @@ static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long hea
     const i2c_master_bus_handle_t i2c_bus = System_GetI2cBus();
     const bool epot_initialized = Epot_IsInitialized();
     const bool oled_initialized = Oled_IsInitialized();
+    const bool encoder_initialized = Encodeur_IsInitialized();
+    const int32_t encoder_counter = Encodeur_GetCounter();
 
     printf("\n========================================\n");
     printf("ETAT SYSTEME\n");
@@ -116,6 +120,9 @@ static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long hea
     }
     printf("\n");
     printf("Test OLED     : %s\n", gOledCommunicationOk ? "OK" : "ECHEC / NON TESTE");
+    printf("Encodeur      : %s\n", encoder_initialized ? "INITIALISE" : "NON INITIALISE");
+    printf("Compteur      : %ld\n", (long)encoder_counter);
+    printf("Bouton SW     : %s\n", Encodeur_IsButtonPressed() ? "APPUYE" : "RELACHE");
     printf("Driver EPOT   : %s\n", epot_initialized ? "INITIALISE" : "NON INITIALISE");
     printf("EPOT Gain     : adresse 0x%02X\n", SYSTEM_EPOT_GAIN_I2C_ADDRESS);
     printf("EPOT Offset   : adresse 0x%02X\n", SYSTEM_EPOT_OFFSET_I2C_ADDRESS);
@@ -184,18 +191,40 @@ static void InitAndTestOled(void)
 
     printf("OLED detecte a l'adresse 0x%02X.\n", Oled_GetI2cAddress());
 
-    err = Oled_TestPattern();
+    err = Oled_ShowCounter(0);
     if (err == ESP_OK)
     {
         gOledCommunicationOk = true;
-        printf("Test OLED OK : cadre et croix affiches.\n");
+        printf("OLED OK : compteur 0 affiche.\n");
     }
     else
     {
         gOledCommunicationOk = false;
-        printf("Test OLED ECHEC : %s\n", esp_err_to_name(err));
+        printf("Affichage OLED ECHEC : %s\n", esp_err_to_name(err));
     }
 
+    fflush(stdout);
+}
+
+static void InitEncoder(void)
+{
+    const esp_err_t err = Encodeur_Init(
+        SYSTEM_ENCODER_A_GPIO,
+        SYSTEM_ENCODER_B_GPIO,
+        SYSTEM_ENCODER_BUTTON_GPIO,
+        SYSTEM_ENCODER_EDGES_PER_STEP,
+        SYSTEM_ENCODER_REVERSE_DIRECTION != 0);
+
+    if (err != ESP_OK)
+    {
+        FatalBlinkLoop("Encodeur_Init", err);
+    }
+
+    printf("Encodeur PEC12R initialise sous interruption.\n");
+    printf("  A/CLK : GPIO%d\n", (int)SYSTEM_ENCODER_A_GPIO);
+    printf("  B/DT  : GPIO%d\n", (int)SYSTEM_ENCODER_B_GPIO);
+    printf("  SW    : GPIO%d\n", (int)SYSTEM_ENCODER_BUTTON_GPIO);
+    printf("  Compteur initial : %ld\n", (long)Encodeur_GetCounter());
     fflush(stdout);
 }
 
@@ -205,10 +234,12 @@ MAIN
 void app_main(void)
 {
     esp_err_t err;
-    esp_reset_reason_t reset_reason;
+    const esp_reset_reason_t reset_reason = esp_reset_reason();
     unsigned long heartbeat_count = 0;
-
-    reset_reason = esp_reset_reason();
+    int32_t last_displayed_counter;
+    bool status_led_on = false;
+    int64_t last_led_toggle_us;
+    int64_t last_heartbeat_us;
 
     err = InitStatusLed();
     if (err != ESP_OK)
@@ -239,6 +270,7 @@ void app_main(void)
     printf("Bus I2C partage pret.\n");
 
     InitAndTestOled();
+    InitEncoder();
 
     printf("Initialisation EPOT...\n");
     err = Epot_Init(System_GetI2cBus(),
@@ -251,40 +283,90 @@ void app_main(void)
 
     printf("Driver EPOT initialise.\n");
     TestEpotCommunication();
-    printf("Diagnostic heartbeat actif.\n");
+
+    last_displayed_counter = Encodeur_GetCounter();
+    if (Oled_IsInitialized())
+    {
+        err = Oled_ShowCounter(last_displayed_counter);
+        if (err != ESP_OK)
+        {
+            gOledCommunicationOk = false;
+            printf("Erreur affichage compteur initial : %s\n", esp_err_to_name(err));
+        }
+    }
+
+    printf("Test encodeur actif : tourner l'encodeur pour incrementer/decrementer le compteur.\n");
     fflush(stdout);
+
+    last_led_toggle_us = esp_timer_get_time();
+    last_heartbeat_us = last_led_toggle_us;
 
     while (1)
     {
-        const bool system_initialized = System_IsInitialized();
-        const i2c_master_bus_handle_t i2c_bus = System_GetI2cBus();
-        const bool epot_initialized = Epot_IsInitialized();
-        const bool oled_initialized = Oled_IsInitialized();
+        const int64_t now_us = esp_timer_get_time();
+        const int32_t counter = Encodeur_GetCounter();
 
-        StatusLedSet(1);
-        vTaskDelay(pdMS_TO_TICKS(500));
-
-        StatusLedSet(0);
-        vTaskDelay(pdMS_TO_TICKS(500));
-
-        heartbeat_count++;
-
-        printf(
-            "Heartbeat #%lu - uptime : %lld ms - System : %s - I2C : %s - OLED : %s/%s - EPOT : %s/%s\n",
-            heartbeat_count,
-            (long long)(esp_timer_get_time() / 1000LL),
-            system_initialized ? "OK" : "ERREUR",
-            (i2c_bus != NULL) ? "READY" : "NULL",
-            oled_initialized ? "INIT" : "ABSENT",
-            gOledCommunicationOk ? "OK" : "ECHEC",
-            epot_initialized ? "INIT" : "ERREUR",
-            gEpotCommunicationOk ? "OK" : "ECHEC");
-        fflush(stdout);
-
-        if ((heartbeat_count % 5UL) == 0UL)
+        if (counter != last_displayed_counter)
         {
-            PrintSystemStatus(reset_reason, heartbeat_count);
+            if (Oled_IsInitialized())
+            {
+                err = Oled_ShowCounter(counter);
+                if (err == ESP_OK)
+                {
+                    gOledCommunicationOk = true;
+                }
+                else
+                {
+                    gOledCommunicationOk = false;
+                    printf("Erreur mise a jour OLED : %s\n", esp_err_to_name(err));
+                }
+            }
+
+            printf("Compteur encodeur : %ld\n", (long)counter);
+            fflush(stdout);
+            last_displayed_counter = counter;
         }
+
+        if ((now_us - last_led_toggle_us) >= 500000LL)
+        {
+            status_led_on = !status_led_on;
+            StatusLedSet(status_led_on ? 1 : 0);
+            last_led_toggle_us = now_us;
+        }
+
+        if ((now_us - last_heartbeat_us) >= 1000000LL)
+        {
+            const bool system_initialized = System_IsInitialized();
+            const i2c_master_bus_handle_t i2c_bus = System_GetI2cBus();
+            const bool epot_initialized = Epot_IsInitialized();
+            const bool oled_initialized = Oled_IsInitialized();
+            const bool encoder_initialized = Encodeur_IsInitialized();
+
+            heartbeat_count++;
+
+            printf(
+                "Heartbeat #%lu - uptime : %lld ms - System : %s - I2C : %s - OLED : %s/%s - ENC : %s/%ld - EPOT : %s/%s\n",
+                heartbeat_count,
+                (long long)(now_us / 1000LL),
+                system_initialized ? "OK" : "ERREUR",
+                (i2c_bus != NULL) ? "READY" : "NULL",
+                oled_initialized ? "INIT" : "ABSENT",
+                gOledCommunicationOk ? "OK" : "ECHEC",
+                encoder_initialized ? "INIT" : "ERREUR",
+                (long)counter,
+                epot_initialized ? "INIT" : "ERREUR",
+                gEpotCommunicationOk ? "OK" : "ECHEC");
+            fflush(stdout);
+
+            if ((heartbeat_count % 5UL) == 0UL)
+            {
+                PrintSystemStatus(reset_reason, heartbeat_count);
+            }
+
+            last_heartbeat_us = now_us;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(SYSTEM_ENCODER_POLL_PERIOD_MS));
     }
 }
 

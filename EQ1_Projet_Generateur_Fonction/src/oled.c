@@ -4,6 +4,7 @@ Fichier      : oled.c
 Description  : Driver applicatif de l'écran OLED SH1106 128x64 I2C
 ===============================================================================================*/
 
+#include <stdio.h>
 #include <string.h>
 
 #include "oled.h"
@@ -22,11 +23,32 @@ static bool gOledInitialized = false;
 static uint8_t gOledI2cAddress = 0U;
 static uint8_t gOledFrameBuffer[(SYSTEM_OLED_WIDTH * SYSTEM_OLED_HEIGHT) / 8U];
 
+/* Police minimale 5x7 pour les chiffres 0..9. Chaque octet représente une ligne sur 5 pixels. */
+static const uint8_t gDigitGlyphs[10][7] =
+{
+    {0x0EU, 0x11U, 0x13U, 0x15U, 0x19U, 0x11U, 0x0EU}, /* 0 */
+    {0x04U, 0x0CU, 0x04U, 0x04U, 0x04U, 0x04U, 0x0EU}, /* 1 */
+    {0x0EU, 0x11U, 0x01U, 0x02U, 0x04U, 0x08U, 0x1FU}, /* 2 */
+    {0x1EU, 0x01U, 0x01U, 0x0EU, 0x01U, 0x01U, 0x1EU}, /* 3 */
+    {0x02U, 0x06U, 0x0AU, 0x12U, 0x1FU, 0x02U, 0x02U}, /* 4 */
+    {0x1FU, 0x10U, 0x10U, 0x1EU, 0x01U, 0x01U, 0x1EU}, /* 5 */
+    {0x0EU, 0x10U, 0x10U, 0x1EU, 0x11U, 0x11U, 0x0EU}, /* 6 */
+    {0x1FU, 0x01U, 0x02U, 0x04U, 0x08U, 0x08U, 0x08U}, /* 7 */
+    {0x0EU, 0x11U, 0x11U, 0x0EU, 0x11U, 0x11U, 0x0EU}, /* 8 */
+    {0x0EU, 0x11U, 0x11U, 0x0FU, 0x01U, 0x01U, 0x0EU}  /* 9 */
+};
+
+static const uint8_t gMinusGlyph[7] =
+{
+    0x00U, 0x00U, 0x00U, 0x1FU, 0x00U, 0x00U, 0x00U
+};
+
 /*===============================================================================================
 PROTOTYPES DE FONCTIONS LOCALES
 ===============================================================================================*/
 static esp_err_t Oled_DetectAddress(i2c_master_bus_handle_t bus_handle, uint8_t *address);
 static void Oled_SetPixel(uint16_t x, uint16_t y, bool enabled);
+static void Oled_DrawCharacter(uint16_t x, uint16_t y, char character, uint8_t scale);
 static void Oled_CleanupHandles(void);
 
 /*===============================================================================================
@@ -76,6 +98,51 @@ static void Oled_SetPixel(uint16_t x, uint16_t y, bool enabled)
     else
     {
         gOledFrameBuffer[index] &= (uint8_t)~(1U << bit);
+    }
+}
+
+static void Oled_DrawCharacter(uint16_t x, uint16_t y, char character, uint8_t scale)
+{
+    const uint8_t *glyph = NULL;
+    uint8_t row;
+    uint8_t column;
+    uint8_t sx;
+    uint8_t sy;
+
+    if ((character >= '0') && (character <= '9'))
+    {
+        glyph = gDigitGlyphs[(uint8_t)(character - '0')];
+    }
+    else if (character == '-')
+    {
+        glyph = gMinusGlyph;
+    }
+    else
+    {
+        return;
+    }
+
+    for (row = 0U; row < 7U; row++)
+    {
+        for (column = 0U; column < 5U; column++)
+        {
+            const bool enabled = (glyph[row] & (uint8_t)(1U << (4U - column))) != 0U;
+
+            if (!enabled)
+            {
+                continue;
+            }
+
+            for (sy = 0U; sy < scale; sy++)
+            {
+                for (sx = 0U; sx < scale; sx++)
+                {
+                    Oled_SetPixel((uint16_t)(x + (column * scale) + sx),
+                                  (uint16_t)(y + (row * scale) + sy),
+                                  true);
+                }
+            }
+        }
     }
 }
 
@@ -249,7 +316,6 @@ esp_err_t Oled_TestPattern(void)
 
     memset(gOledFrameBuffer, 0, sizeof(gOledFrameBuffer));
 
-    /* Cadre extérieur. */
     for (x = 0U; x < SYSTEM_OLED_WIDTH; x++)
     {
         Oled_SetPixel(x, 0U, true);
@@ -262,7 +328,6 @@ esp_err_t Oled_TestPattern(void)
         Oled_SetPixel(SYSTEM_OLED_WIDTH - 1U, y, true);
     }
 
-    /* Croix centrale pour vérifier l'orientation et toute la surface utile. */
     for (x = 0U; x < SYSTEM_OLED_WIDTH; x++)
     {
         Oled_SetPixel(x, SYSTEM_OLED_HEIGHT / 2U, true);
@@ -271,6 +336,63 @@ esp_err_t Oled_TestPattern(void)
     for (y = 0U; y < SYSTEM_OLED_HEIGHT; y++)
     {
         Oled_SetPixel(SYSTEM_OLED_WIDTH / 2U, y, true);
+    }
+
+    return esp_lcd_panel_draw_bitmap(gOledPanelHandle,
+                                     0,
+                                     0,
+                                     SYSTEM_OLED_WIDTH,
+                                     SYSTEM_OLED_HEIGHT,
+                                     gOledFrameBuffer);
+}
+
+esp_err_t Oled_ShowCounter(int32_t value)
+{
+    char value_text[16];
+    size_t length;
+    uint8_t scale;
+    uint16_t character_width;
+    uint16_t spacing;
+    uint16_t total_width;
+    uint16_t x;
+    uint16_t y;
+    size_t i;
+
+    if (!gOledInitialized || (gOledPanelHandle == NULL))
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    snprintf(value_text, sizeof(value_text), "%ld", (long)value);
+    length = strlen(value_text);
+
+    if (length <= 5U)
+    {
+        scale = 3U;
+    }
+    else if (length <= 10U)
+    {
+        scale = 2U;
+    }
+    else
+    {
+        scale = 1U;
+    }
+
+    character_width = (uint16_t)(5U * scale);
+    spacing = scale;
+    total_width = (uint16_t)((length * character_width) + ((length - 1U) * spacing));
+
+    x = (SYSTEM_OLED_WIDTH > total_width) ?
+        (uint16_t)((SYSTEM_OLED_WIDTH - total_width) / 2U) : 0U;
+    y = (uint16_t)((SYSTEM_OLED_HEIGHT - (7U * scale)) / 2U);
+
+    memset(gOledFrameBuffer, 0, sizeof(gOledFrameBuffer));
+
+    for (i = 0U; i < length; i++)
+    {
+        Oled_DrawCharacter(x, y, value_text[i], scale);
+        x = (uint16_t)(x + character_width + spacing);
     }
 
     return esp_lcd_panel_draw_bitmap(gOledPanelHandle,
