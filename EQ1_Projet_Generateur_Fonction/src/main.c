@@ -26,6 +26,7 @@ PROTOTYPES DE FONCTIONS LOCALES
 static esp_err_t InitStatusLed(void);
 static void StatusLedSet(int enabled);
 static const char *ResetReasonToString(esp_reset_reason_t reason);
+static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long heartbeat_count);
 static void FatalBlinkLoop(const char *message, esp_err_t error);
 
 /*===============================================================================================
@@ -80,6 +81,23 @@ static const char *ResetReasonToString(esp_reset_reason_t reason)
         case ESP_RST_CPU_LOCKUP: return "CPU_LOCKUP";
         default:                 return "OTHER";
     }
+}
+
+static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long heartbeat_count)
+{
+    const bool system_initialized = System_IsInitialized();
+    const i2c_master_bus_handle_t i2c_bus = System_GetI2cBus();
+
+    printf("\n========================================\n");
+    printf("ETAT SYSTEME\n");
+    printf("Heartbeat     : #%lu\n", heartbeat_count);
+    printf("Uptime        : %lld ms\n", (long long)(esp_timer_get_time() / 1000LL));
+    printf("Reset reason  : %s\n", ResetReasonToString(reset_reason));
+    printf("System_Init   : %s\n", system_initialized ? "OK" : "NON INITIALISE");
+    printf("Bus I2C       : %s\n", (i2c_bus != NULL) ? "READY" : "NULL");
+    printf("Handle I2C    : %p\n", (void *)i2c_bus);
+    printf("========================================\n\n");
+    fflush(stdout);
 }
 
 static void FatalBlinkLoop(const char *message, esp_err_t error)
@@ -144,14 +162,19 @@ void app_main(void)
     fflush(stdout);
 
     /*
-     * Diagnostic de redemarrage :
-     * - le compteur augmente a chaque heartbeat ;
-     * - l'uptime repart a zero apres un vrai reset ;
+     * Diagnostic permanent :
+     * - un heartbeat est affiche chaque seconde ;
+     * - l'etat de System_Init et du bus I2C est affiche a chaque heartbeat ;
+     * - un resume complet est affiche toutes les 5 secondes ;
+     * - le compteur et l'uptime permettent de detecter un vrai redemarrage ;
      * - la LED clignote a 1 Hz ;
      * - vTaskDelay() laisse le CPU aux autres taches et au watchdog.
      */
     while (1)
     {
+        const bool system_initialized = System_IsInitialized();
+        const i2c_master_bus_handle_t i2c_bus = System_GetI2cBus();
+
         StatusLedSet(1);
         vTaskDelay(pdMS_TO_TICKS(500));
 
@@ -161,11 +184,18 @@ void app_main(void)
         heartbeat_count++;
 
         printf(
-            "Heartbeat #%lu - uptime : %lld ms - reset : %s\n",
+            "Heartbeat #%lu - uptime : %lld ms - reset : %s - System_Init : %s - I2C : %s\n",
             heartbeat_count,
             (long long)(esp_timer_get_time() / 1000LL),
-            ResetReasonToString(reset_reason));
+            ResetReasonToString(reset_reason),
+            system_initialized ? "OK" : "ERREUR",
+            (i2c_bus != NULL) ? "READY" : "NULL");
         fflush(stdout);
+
+        if ((heartbeat_count % 5UL) == 0UL)
+        {
+            PrintSystemStatus(reset_reason, heartbeat_count);
+        }
     }
 }
 
