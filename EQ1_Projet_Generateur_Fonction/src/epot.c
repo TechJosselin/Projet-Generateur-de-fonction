@@ -29,9 +29,7 @@ static bool gEpotInitialized = false;
 PROTOTYPES DE FONCTIONS LOCALES
 ===============================================================================================*/
 static bool Epot_IsValidAddress(uint8_t address);
-static esp_err_t Epot_AddDevice(i2c_master_bus_handle_t bus_handle,
-                                uint8_t address,
-                                i2c_master_dev_handle_t *device_handle);
+static esp_err_t Epot_AddDevice(i2c_master_bus_handle_t bus_handle,uint8_t address,i2c_master_dev_handle_t *device_handle);
 static esp_err_t Epot_WriteWiper(i2c_master_dev_handle_t device_handle, uint8_t value);
 
 /*===============================================================================================
@@ -42,10 +40,7 @@ static bool Epot_IsValidAddress(uint8_t address)
     return (address >= EPOT_I2C_ADDRESS_MIN) && (address <= EPOT_I2C_ADDRESS_MAX);
 }
 
-static esp_err_t Epot_AddDevice(i2c_master_bus_handle_t bus_handle,
-                                uint8_t address,
-                                i2c_master_dev_handle_t *device_handle)
-{
+static esp_err_t Epot_AddDevice(i2c_master_bus_handle_t bus_handle, uint8_t address, i2c_master_dev_handle_t *device_handle) {
     if ((bus_handle == NULL) || (device_handle == NULL))
     {
         return ESP_ERR_INVALID_ARG;
@@ -61,8 +56,7 @@ static esp_err_t Epot_AddDevice(i2c_master_bus_handle_t bus_handle,
     return i2c_master_bus_add_device(bus_handle, &device_config, device_handle);
 }
 
-static esp_err_t Epot_WriteWiper(i2c_master_dev_handle_t device_handle, uint8_t value)
-{
+static esp_err_t Epot_WriteWiper(i2c_master_dev_handle_t device_handle, uint8_t value) {
     if (device_handle == NULL)
     {
         return ESP_ERR_INVALID_STATE;
@@ -83,10 +77,7 @@ static esp_err_t Epot_WriteWiper(i2c_master_dev_handle_t device_handle, uint8_t 
 /*===============================================================================================
 FONCTIONS PUBLIQUES
 ===============================================================================================*/
-esp_err_t Epot_Init(i2c_master_bus_handle_t bus_handle,
-                    uint8_t gain_address,
-                    uint8_t offset_address)
-{
+esp_err_t Epot_Init(i2c_master_bus_handle_t bus_handle, uint8_t gain_address, uint8_t offset_address) {
     esp_err_t err;
 
     if (bus_handle == NULL)
