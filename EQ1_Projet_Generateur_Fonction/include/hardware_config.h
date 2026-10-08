@@ -16,10 +16,6 @@ INCLUDES
 /*===============================================================================================
 LED DE STATUT
 ===============================================================================================*/
-/*
- * LED utilisateur du XIAO ESP32-C6.
- * La LED est active à l'état bas.
- */
 #define SYSTEM_STATUS_LED_GPIO                  GPIO_NUM_15
 #define SYSTEM_STATUS_LED_ON_LEVEL              0
 #define SYSTEM_STATUS_LED_OFF_LEVEL             1
@@ -41,16 +37,28 @@ BUS I2C PARTAGE
 #define SYSTEM_I2C_ENABLE_INTERNAL_PULLUPS      1
 
 /*===============================================================================================
-POTENTIOMETRES NUMERIQUES MCP45HV51
+ECRAN OLED SH1106 1.3\" I2C
 ===============================================================================================*/
 /*
- * Adresses utilisées par le câblage logiciel actuel.
- * Elles doivent correspondre à l'état réel des broches d'adresse A1/A0 des MCP45HV51.
+ * Le module photographié possède des straps pour le brochage d'alimentation :
+ *   - pin 1 -> GND
+ *   - pin 2 -> VDD
+ * Ces straps ne sélectionnent pas l'adresse I2C.
+ *
+ * Le logiciel teste automatiquement les deux adresses usuelles du SH1106.
  */
+#define SYSTEM_OLED_I2C_ADDRESS_PRIMARY         0x3CU
+#define SYSTEM_OLED_I2C_ADDRESS_SECONDARY       0x3DU
+#define SYSTEM_OLED_I2C_SPEED_HZ                400000U
+#define SYSTEM_OLED_WIDTH                       128U
+#define SYSTEM_OLED_HEIGHT                      64U
+#define SYSTEM_OLED_PROBE_TIMEOUT_MS            50U
+
+/*===============================================================================================
+POTENTIOMETRES NUMERIQUES MCP45HV51
+===============================================================================================*/
 #define SYSTEM_EPOT_GAIN_I2C_ADDRESS            0x3EU
 #define SYSTEM_EPOT_OFFSET_I2C_ADDRESS          0x3FU
-
-/* Valeur brute utilisée uniquement pour le test de communication de cette phase. */
 #define SYSTEM_EPOT_TEST_RAW_VALUE              127U
 
 #endif /* HARDWARE_CONFIG_H */

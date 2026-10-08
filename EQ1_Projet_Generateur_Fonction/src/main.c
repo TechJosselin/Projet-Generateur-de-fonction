@@ -20,11 +20,13 @@ INCLUDES
 #include "hardware_config.h"
 #include "initialisation.h"
 #include "epot.h"
+#include "oled.h"
 
 /*===============================================================================================
 VARIABLES LOCALES
 ===============================================================================================*/
 static bool gEpotCommunicationOk = false;
+static bool gOledCommunicationOk = false;
 
 /*===============================================================================================
 PROTOTYPES DE FONCTIONS LOCALES
@@ -35,6 +37,7 @@ static const char *ResetReasonToString(esp_reset_reason_t reason);
 static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long heartbeat_count);
 static void FatalBlinkLoop(const char *message, esp_err_t error);
 static void TestEpotCommunication(void);
+static void InitAndTestOled(void);
 
 /*===============================================================================================
 FONCTIONS LOCALES
@@ -95,6 +98,7 @@ static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long hea
     const bool system_initialized = System_IsInitialized();
     const i2c_master_bus_handle_t i2c_bus = System_GetI2cBus();
     const bool epot_initialized = Epot_IsInitialized();
+    const bool oled_initialized = Oled_IsInitialized();
 
     printf("\n========================================\n");
     printf("ETAT SYSTEME\n");
@@ -104,6 +108,14 @@ static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long hea
     printf("System_Init   : %s\n", system_initialized ? "OK" : "NON INITIALISE");
     printf("Bus I2C       : %s\n", (i2c_bus != NULL) ? "READY" : "NULL");
     printf("Handle I2C    : %p\n", (void *)i2c_bus);
+    printf("Driver OLED   : %s\n", oled_initialized ? "INITIALISE" : "NON INITIALISE");
+    printf("OLED adresse  : %s", oled_initialized ? "0x" : "--");
+    if (oled_initialized)
+    {
+        printf("%02X", Oled_GetI2cAddress());
+    }
+    printf("\n");
+    printf("Test OLED     : %s\n", gOledCommunicationOk ? "OK" : "ECHEC / NON TESTE");
     printf("Driver EPOT   : %s\n", epot_initialized ? "INITIALISE" : "NON INITIALISE");
     printf("EPOT Gain     : adresse 0x%02X\n", SYSTEM_EPOT_GAIN_I2C_ADDRESS);
     printf("EPOT Offset   : adresse 0x%02X\n", SYSTEM_EPOT_OFFSET_I2C_ADDRESS);
@@ -147,7 +159,41 @@ static void TestEpotCommunication(void)
         printf("Test EPOT I2C ECHEC.\n");
         printf("  Gain   : %s\n", esp_err_to_name(gain_err));
         printf("  Offset : %s\n", esp_err_to_name(offset_err));
-        printf("Verifier le cablage, les pull-up et les adresses A1/A0 des MCP45HV51.\n");
+    }
+
+    fflush(stdout);
+}
+
+static void InitAndTestOled(void)
+{
+    esp_err_t err;
+
+    printf("Initialisation OLED SH1106...\n");
+
+    err = Oled_Init(System_GetI2cBus());
+    if (err != ESP_OK)
+    {
+        gOledCommunicationOk = false;
+        printf("OLED non detecte sur 0x%02X ou 0x%02X : %s\n",
+               SYSTEM_OLED_I2C_ADDRESS_PRIMARY,
+               SYSTEM_OLED_I2C_ADDRESS_SECONDARY,
+               esp_err_to_name(err));
+        fflush(stdout);
+        return;
+    }
+
+    printf("OLED detecte a l'adresse 0x%02X.\n", Oled_GetI2cAddress());
+
+    err = Oled_TestPattern();
+    if (err == ESP_OK)
+    {
+        gOledCommunicationOk = true;
+        printf("Test OLED OK : cadre et croix affiches.\n");
+    }
+    else
+    {
+        gOledCommunicationOk = false;
+        printf("Test OLED ECHEC : %s\n", esp_err_to_name(err));
     }
 
     fflush(stdout);
@@ -171,7 +217,6 @@ void app_main(void)
         fflush(stdout);
     }
 
-    /* Laisse le temps au port USB d'être réouvert après le flash. */
     StatusLedSet(1);
     vTaskDelay(pdMS_TO_TICKS(3000));
     StatusLedSet(0);
@@ -193,6 +238,8 @@ void app_main(void)
     printf("Initialisation systeme OK.\n");
     printf("Bus I2C partage pret.\n");
 
+    InitAndTestOled();
+
     printf("Initialisation EPOT...\n");
     err = Epot_Init(System_GetI2cBus(),
                     SYSTEM_EPOT_GAIN_I2C_ADDRESS,
@@ -212,6 +259,7 @@ void app_main(void)
         const bool system_initialized = System_IsInitialized();
         const i2c_master_bus_handle_t i2c_bus = System_GetI2cBus();
         const bool epot_initialized = Epot_IsInitialized();
+        const bool oled_initialized = Oled_IsInitialized();
 
         StatusLedSet(1);
         vTaskDelay(pdMS_TO_TICKS(500));
@@ -222,12 +270,13 @@ void app_main(void)
         heartbeat_count++;
 
         printf(
-            "Heartbeat #%lu - uptime : %lld ms - reset : %s - System : %s - I2C : %s - EPOT : %s - EPOT I2C : %s\n",
+            "Heartbeat #%lu - uptime : %lld ms - System : %s - I2C : %s - OLED : %s/%s - EPOT : %s/%s\n",
             heartbeat_count,
             (long long)(esp_timer_get_time() / 1000LL),
-            ResetReasonToString(reset_reason),
             system_initialized ? "OK" : "ERREUR",
             (i2c_bus != NULL) ? "READY" : "NULL",
+            oled_initialized ? "INIT" : "ABSENT",
+            gOledCommunicationOk ? "OK" : "ECHEC",
             epot_initialized ? "INIT" : "ERREUR",
             gEpotCommunicationOk ? "OK" : "ECHEC");
         fflush(stdout);

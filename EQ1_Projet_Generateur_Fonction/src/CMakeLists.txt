@@ -11,4 +11,5 @@ idf_component_register(
         esp_driver_i2c
         esp_driver_spi
         esp_driver_usb_serial_jtag
+        esp_lcd
 )
