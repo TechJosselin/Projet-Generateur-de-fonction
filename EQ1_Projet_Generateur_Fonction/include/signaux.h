@@ -32,6 +32,15 @@ typedef struct
 esp_err_t Signaux_GetPreset(uint8_t preset_number, signaux_signal_t *out_signal);
 esp_err_t Signaux_Apply(const signaux_signal_t *signal);
 esp_err_t Signaux_ApplyPreset(uint8_t preset_number);
+
+/*
+ * Commande brute du potentiomètre de gain.
+ * Cette fonction permet de tester/intégrer l'EPOT avant la calibration
+ * amplitude Vpp -> valeur de wiper.
+ */
+esp_err_t Signaux_SetGainRaw(uint8_t raw_value);
+esp_err_t Signaux_GetGainRaw(uint8_t *out_raw_value);
+
 bool Signaux_HasCurrentSignal(void);
 esp_err_t Signaux_GetCurrent(signaux_signal_t *out_signal);
 const char *Signaux_TypeToString(signaux_type_t type);
