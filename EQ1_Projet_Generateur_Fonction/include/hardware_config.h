@@ -94,8 +94,18 @@ GENERATEUR DDS AD9833
 /*===============================================================================================
 POTENTIOMETRES NUMERIQUES MCP45HV51
 ===============================================================================================*/
+/*
+ * Adresses prévues pour la version finale à deux EPOT :
+ *   - Gain   : 0x3E
+ *   - Offset : 0x3F
+ *
+ * Pour l'intégration actuelle avec un seul MCP45HV51 câblé A1=1 / A0=1,
+ * le composant 0x3F est temporairement utilisé comme canal de gain brut.
+ */
 #define SYSTEM_EPOT_GAIN_I2C_ADDRESS            0x3EU
 #define SYSTEM_EPOT_OFFSET_I2C_ADDRESS          0x3FU
+#define SYSTEM_EPOT_SINGLE_I2C_ADDRESS          0x3FU
+#define SYSTEM_EPOT_INITIAL_GAIN_RAW            127U
 #define SYSTEM_EPOT_TEST_RAW_VALUE              127U
 
 #endif /* HARDWARE_CONFIG_H */
