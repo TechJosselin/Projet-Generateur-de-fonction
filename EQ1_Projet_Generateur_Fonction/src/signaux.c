@@ -4,8 +4,9 @@ Fichier      : signaux.c
 Description  : Gestion du signal complet et des 10 presets du cahier des charges
 
 Base d'intégration : presets et génération de Samuel (RDMR_GenerationSignal).
-L'AD9833 applique actuellement la forme et la fréquence. L'amplitude et l'offset restent mémorisés
-ici jusqu'à la phase de calibration de la chaîne analogique / des EPOT.
+L'AD9833 applique actuellement la forme et la fréquence. Le potentiomètre de gain peut être piloté
+par une valeur brute 0..255 ; la conversion amplitude Vpp -> wiper sera ajoutée après calibration
+de la chaîne analogique.
 ===============================================================================================*/
 
 #include "signaux.h"
@@ -13,6 +14,7 @@ ici jusqu'à la phase de calibration de la chaîne analogique / des EPOT.
 #include <stddef.h>
 
 #include "ad9833.h"
+#include "epot.h"
 
 static const signaux_signal_t gPresets[SIGNAUX_PRESET_COUNT] =
 {
@@ -30,6 +32,8 @@ static const signaux_signal_t gPresets[SIGNAUX_PRESET_COUNT] =
 
 static signaux_signal_t gCurrentSignal;
 static bool gHasCurrentSignal = false;
+static uint8_t gGainRaw = 0U;
+static bool gHasGainRaw = false;
 
 static esp_err_t Signaux_ToAd9833Waveform(signaux_type_t type, ad9833_waveform_t *waveform)
 {
@@ -103,9 +107,10 @@ esp_err_t Signaux_Apply(const signaux_signal_t *signal)
     }
 
     /*
-     * amplitude_vpp et offset_v sont volontairement conservés dans le modèle du signal mais ne
-     * sont pas encore convertis en valeurs brutes pour les deux MCP45HV51. Cette conversion sera
-     * ajoutée après caractérisation/calibration de la chaîne analogique.
+     * amplitude_vpp et offset_v restent dans le modèle du signal.
+     * Le gain est déjà pilotable en brut avec Signaux_SetGainRaw(), mais aucune
+     * conversion amplitude Vpp -> wiper n'est appliquée tant que l'étage analogique
+     * n'a pas été caractérisé/calibré.
      */
     gCurrentSignal = *signal;
     gHasCurrentSignal = true;
@@ -124,6 +129,42 @@ esp_err_t Signaux_ApplyPreset(uint8_t preset_number)
     }
 
     return Signaux_Apply(&signal);
+}
+
+esp_err_t Signaux_SetGainRaw(uint8_t raw_value)
+{
+    esp_err_t err;
+
+    if (!Epot_IsInitialized() || !Epot_IsChannelAvailable(EPOT_CHANNEL_GAIN))
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    err = Epot_SetGainRaw(raw_value);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+
+    gGainRaw = raw_value;
+    gHasGainRaw = true;
+    return ESP_OK;
+}
+
+esp_err_t Signaux_GetGainRaw(uint8_t *out_raw_value)
+{
+    if (out_raw_value == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!gHasGainRaw)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    *out_raw_value = gGainRaw;
+    return ESP_OK;
 }
 
 bool Signaux_HasCurrentSignal(void)
