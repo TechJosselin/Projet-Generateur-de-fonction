@@ -22,6 +22,8 @@ INCLUDES
 #include "encodeur.h"
 #include "epot.h"
 #include "oled.h"
+#include "ad9833.h"
+#include "signaux.h"
 
 /*===============================================================================================
 CONSTANTES LOCALES
@@ -34,6 +36,7 @@ VARIABLES LOCALES
 ===============================================================================================*/
 static bool gEpotCommunicationOk = false;
 static bool gOledCommunicationOk = false;
+static bool gAd9833CommandOk = false;
 
 /*===============================================================================================
 PROTOTYPES DE FONCTIONS LOCALES
@@ -46,6 +49,7 @@ static void FatalBlinkLoop(const char *message, esp_err_t error);
 static void TestEpotCommunication(void);
 static void InitAndTestOled(void);
 static void InitEncoder(void);
+static void InitAndTestAd9833(void);
 
 /*===============================================================================================
 FONCTIONS LOCALES
@@ -108,7 +112,10 @@ static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long hea
     const bool epot_initialized = Epot_IsInitialized();
     const bool oled_initialized = Oled_IsInitialized();
     const bool encoder_initialized = Encodeur_IsInitialized();
+    const bool ad9833_initialized = Ad9833_IsInitialized();
     const int32_t encoder_counter = Encodeur_GetCounter();
+    signaux_signal_t signal;
+    const bool signal_available = (Signaux_GetCurrent(&signal) == ESP_OK);
 
     printf("\n========================================\n");
     printf("ETAT SYSTEME\n");
@@ -129,6 +136,22 @@ static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long hea
     printf("Encodeur      : %s\n", encoder_initialized ? "INITIALISE" : "NON INITIALISE");
     printf("Compteur      : %ld\n", (long)encoder_counter);
     printf("Bouton SW     : %s\n", Encodeur_IsButtonPressed() ? "APPUYE" : "RELACHE");
+    printf("Driver AD9833 : %s\n", ad9833_initialized ? "INITIALISE" : "NON INITIALISE");
+    printf("Commande SPI  : %s\n", gAd9833CommandOk ? "ENVOYEE" : "ECHEC / NON TESTEE");
+
+    if (signal_available)
+    {
+        printf("Signal        : %s / %.3f Hz\n",
+               Signaux_TypeToString(signal.type),
+               (double)signal.frequency_hz);
+        printf("Amplitude     : %.3f Vpp (non calibree)\n", (double)signal.amplitude_vpp);
+        printf("Offset        : %.3f V (non calibre)\n", (double)signal.offset_v);
+    }
+    else
+    {
+        printf("Signal        : NON APPLIQUE\n");
+    }
+
     printf("Driver EPOT   : %s\n", epot_initialized ? "INITIALISE" : "NON INITIALISE");
     printf("EPOT Gain     : adresse 0x%02X\n", SYSTEM_EPOT_GAIN_I2C_ADDRESS);
     printf("EPOT Offset   : adresse 0x%02X\n", SYSTEM_EPOT_OFFSET_I2C_ADDRESS);
@@ -153,11 +176,8 @@ static void FatalBlinkLoop(const char *message, esp_err_t error)
 
 static void TestEpotCommunication(void)
 {
-    esp_err_t gain_err;
-    esp_err_t offset_err;
-
-    gain_err = Epot_SetGainRaw(SYSTEM_EPOT_TEST_RAW_VALUE);
-    offset_err = Epot_SetOffsetRaw(SYSTEM_EPOT_TEST_RAW_VALUE);
+    const esp_err_t gain_err = Epot_SetGainRaw(SYSTEM_EPOT_TEST_RAW_VALUE);
+    const esp_err_t offset_err = Epot_SetOffsetRaw(SYSTEM_EPOT_TEST_RAW_VALUE);
 
     if ((gain_err == ESP_OK) && (offset_err == ESP_OK))
     {
@@ -235,6 +255,57 @@ static void InitEncoder(void)
     fflush(stdout);
 }
 
+static void InitAndTestAd9833(void)
+{
+    const ad9833_config_t config =
+    {
+        .host = SYSTEM_AD9833_SPI_HOST,
+        .mosi_gpio = SYSTEM_AD9833_MOSI_GPIO,
+        .sclk_gpio = SYSTEM_AD9833_SCLK_GPIO,
+        .fsync_gpio = SYSTEM_AD9833_FSYNC_GPIO,
+        .spi_clock_hz = SYSTEM_AD9833_SPI_CLOCK_HZ,
+        .mclk_hz = SYSTEM_AD9833_MCLK_HZ,
+    };
+
+    printf("Initialisation AD9833...\n");
+    printf("  MOSI/SDATA : GPIO%d\n", (int)SYSTEM_AD9833_MOSI_GPIO);
+    printf("  SCLK       : GPIO%d\n", (int)SYSTEM_AD9833_SCLK_GPIO);
+    printf("  FSYNC      : GPIO%d\n", (int)SYSTEM_AD9833_FSYNC_GPIO);
+
+    esp_err_t err = Ad9833_Init(&config);
+    if (err != ESP_OK)
+    {
+        FatalBlinkLoop("Ad9833_Init", err);
+    }
+
+    printf("Driver AD9833 initialise.\n");
+
+    err = Signaux_ApplyPreset(SYSTEM_AD9833_TEST_PRESET);
+    if (err != ESP_OK)
+    {
+        gAd9833CommandOk = false;
+        printf("Erreur application preset AD9833 : %s\n", esp_err_to_name(err));
+        fflush(stdout);
+        return;
+    }
+
+    signaux_signal_t signal;
+    if (Signaux_GetCurrent(&signal) == ESP_OK)
+    {
+        printf("Preset %u applique : %s / %.3f Hz / %.3f Vpp / offset %.3f V\n",
+               SYSTEM_AD9833_TEST_PRESET,
+               Signaux_TypeToString(signal.type),
+               (double)signal.frequency_hz,
+               (double)signal.amplitude_vpp,
+               (double)signal.offset_v);
+    }
+
+    printf("Note : amplitude et offset ne sont pas encore calibres/pilotes par Signaux_Apply().\n");
+    printf("Le SPI AD9833 n'a pas de retour ACK : le test confirme l'envoi des transactions, pas la presence physique du module.\n");
+    gAd9833CommandOk = true;
+    fflush(stdout);
+}
+
 /*===============================================================================================
 MAIN
 ===============================================================================================*/
@@ -281,6 +352,7 @@ void app_main(void)
 
     InitAndTestOled();
     InitEncoder();
+    InitAndTestAd9833();
 
     printf("Initialisation EPOT...\n");
     err = Epot_Init(System_GetI2cBus(),
@@ -307,6 +379,7 @@ void app_main(void)
 
     printf("Test encodeur actif : tourner l'encodeur pour incrementer/decrementer le compteur.\n");
     printf("Appuyer sur le bouton SW pour remettre le compteur a 0.\n");
+    printf("Test AD9833 actif : preset %u envoye au demarrage.\n", SYSTEM_AD9833_TEST_PRESET);
     fflush(stdout);
 
     last_led_toggle_us = esp_timer_get_time();
@@ -322,11 +395,6 @@ void app_main(void)
         const bool button_raw_state = Encodeur_IsButtonPressed();
         int32_t counter;
 
-        /*
-         * Anti-rebond du bouton : un changement doit rester stable pendant 30 ms.
-         * L'action est déclenchée uniquement sur le front d'appui, pas pendant tout
-         * le temps où le bouton reste maintenu.
-         */
         if (button_raw_state != button_last_raw_state)
         {
             button_last_raw_state = button_raw_state;
@@ -390,11 +458,12 @@ void app_main(void)
             const bool epot_initialized = Epot_IsInitialized();
             const bool oled_initialized = Oled_IsInitialized();
             const bool encoder_initialized = Encodeur_IsInitialized();
+            const bool ad9833_initialized = Ad9833_IsInitialized();
 
             heartbeat_count++;
 
             printf(
-                "Heartbeat #%lu - uptime : %lld ms - System : %s - I2C : %s - OLED : %s/%s - ENC : %s/%ld - EPOT : %s/%s\n",
+                "Heartbeat #%lu - uptime : %lld ms - System : %s - I2C : %s - OLED : %s/%s - ENC : %s/%ld - AD9833 : %s/%s - EPOT : %s/%s\n",
                 heartbeat_count,
                 (long long)(now_us / 1000LL),
                 system_initialized ? "OK" : "ERREUR",
@@ -403,6 +472,8 @@ void app_main(void)
                 gOledCommunicationOk ? "OK" : "ECHEC",
                 encoder_initialized ? "INIT" : "ERREUR",
                 (long)counter,
+                ad9833_initialized ? "INIT" : "ERREUR",
+                gAd9833CommandOk ? "SPI_OK" : "ECHEC",
                 epot_initialized ? "INIT" : "ERREUR",
                 gEpotCommunicationOk ? "OK" : "ECHEC");
             fflush(stdout);

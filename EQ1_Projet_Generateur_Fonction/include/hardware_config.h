@@ -12,6 +12,7 @@ INCLUDES
 ===============================================================================================*/
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
+#include "driver/spi_master.h"
 
 /*===============================================================================================
 LED DE STATUT
@@ -74,6 +75,21 @@ ENCODEUR ROTATIF PEC12R-4220F-S0024
 #define SYSTEM_ENCODER_EDGES_PER_STEP           4U
 #define SYSTEM_ENCODER_REVERSE_DIRECTION        0
 #define SYSTEM_ENCODER_POLL_PERIOD_MS           10U
+
+/*===============================================================================================
+GENERATEUR DDS AD9833
+===============================================================================================*/
+/*
+ * Le FSYNC utilisé par Samuel était GPIO1, mais GPIO1 est déjà réservé au canal A de l'encodeur.
+ * L'intégration utilise donc GPIO21 pour FSYNC afin d'éviter le conflit.
+ */
+#define SYSTEM_AD9833_SPI_HOST                  SPI2_HOST
+#define SYSTEM_AD9833_MOSI_GPIO                 GPIO_NUM_18
+#define SYSTEM_AD9833_SCLK_GPIO                 GPIO_NUM_19
+#define SYSTEM_AD9833_FSYNC_GPIO                GPIO_NUM_21
+#define SYSTEM_AD9833_SPI_CLOCK_HZ              1000000U
+#define SYSTEM_AD9833_MCLK_HZ                   25000000U
+#define SYSTEM_AD9833_TEST_PRESET               1U
 
 /*===============================================================================================
 POTENTIOMETRES NUMERIQUES MCP45HV51
