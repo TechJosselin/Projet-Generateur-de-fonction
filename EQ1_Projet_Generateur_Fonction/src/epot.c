@@ -126,6 +126,48 @@ esp_err_t Epot_Init(i2c_master_bus_handle_t bus_handle,
     return ESP_OK;
 }
 
+esp_err_t Epot_InitSingle(i2c_master_bus_handle_t bus_handle,
+                          epot_channel_t channel,
+                          uint8_t address)
+{
+    esp_err_t err;
+    i2c_master_dev_handle_t *target_handle;
+
+    if ((bus_handle == NULL) || !Epot_IsValidAddress(address))
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (gEpotInitialized)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    switch (channel)
+    {
+        case EPOT_CHANNEL_GAIN:
+            target_handle = &gGainHandle;
+            break;
+
+        case EPOT_CHANNEL_OFFSET:
+            target_handle = &gOffsetHandle;
+            break;
+
+        default:
+            return ESP_ERR_INVALID_ARG;
+    }
+
+    err = Epot_AddDevice(bus_handle, address, target_handle);
+    if (err != ESP_OK)
+    {
+        *target_handle = NULL;
+        return err;
+    }
+
+    gEpotInitialized = true;
+    return ESP_OK;
+}
+
 esp_err_t Epot_Deinit(void)
 {
     esp_err_t first_error = ESP_OK;
@@ -193,6 +235,26 @@ esp_err_t Epot_SetOffsetRaw(uint8_t value)
 bool Epot_IsInitialized(void)
 {
     return gEpotInitialized;
+}
+
+bool Epot_IsChannelAvailable(epot_channel_t channel)
+{
+    if (!gEpotInitialized)
+    {
+        return false;
+    }
+
+    switch (channel)
+    {
+        case EPOT_CHANNEL_GAIN:
+            return gGainHandle != NULL;
+
+        case EPOT_CHANNEL_OFFSET:
+            return gOffsetHandle != NULL;
+
+        default:
+            return false;
+    }
 }
 
 /*===============================================================================================
