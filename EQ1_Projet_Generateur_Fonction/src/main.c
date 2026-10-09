@@ -24,6 +24,12 @@ INCLUDES
 #include "oled.h"
 
 /*===============================================================================================
+CONSTANTES LOCALES
+===============================================================================================*/
+#define ENCODER_BUTTON_DEBOUNCE_MS              30U
+#define ENCODER_BUTTON_DEBOUNCE_US              ((int64_t)ENCODER_BUTTON_DEBOUNCE_MS * 1000LL)
+
+/*===============================================================================================
 VARIABLES LOCALES
 ===============================================================================================*/
 static bool gEpotCommunicationOk = false;
@@ -225,6 +231,7 @@ static void InitEncoder(void)
     printf("  B/DT  : GPIO%d\n", (int)SYSTEM_ENCODER_B_GPIO);
     printf("  SW    : GPIO%d\n", (int)SYSTEM_ENCODER_BUTTON_GPIO);
     printf("  Compteur initial : %ld\n", (long)Encodeur_GetCounter());
+    printf("  Bouton SW : remise du compteur a 0\n");
     fflush(stdout);
 }
 
@@ -240,6 +247,9 @@ void app_main(void)
     bool status_led_on = false;
     int64_t last_led_toggle_us;
     int64_t last_heartbeat_us;
+    bool button_last_raw_state;
+    bool button_stable_state;
+    int64_t button_last_change_us;
 
     err = InitStatusLed();
     if (err != ESP_OK)
@@ -296,15 +306,54 @@ void app_main(void)
     }
 
     printf("Test encodeur actif : tourner l'encodeur pour incrementer/decrementer le compteur.\n");
+    printf("Appuyer sur le bouton SW pour remettre le compteur a 0.\n");
     fflush(stdout);
 
     last_led_toggle_us = esp_timer_get_time();
     last_heartbeat_us = last_led_toggle_us;
 
+    button_last_raw_state = Encodeur_IsButtonPressed();
+    button_stable_state = button_last_raw_state;
+    button_last_change_us = last_led_toggle_us;
+
     while (1)
     {
         const int64_t now_us = esp_timer_get_time();
-        const int32_t counter = Encodeur_GetCounter();
+        const bool button_raw_state = Encodeur_IsButtonPressed();
+        int32_t counter;
+
+        /*
+         * Anti-rebond du bouton : un changement doit rester stable pendant 30 ms.
+         * L'action est déclenchée uniquement sur le front d'appui, pas pendant tout
+         * le temps où le bouton reste maintenu.
+         */
+        if (button_raw_state != button_last_raw_state)
+        {
+            button_last_raw_state = button_raw_state;
+            button_last_change_us = now_us;
+        }
+
+        if ((button_raw_state != button_stable_state) &&
+            ((now_us - button_last_change_us) >= ENCODER_BUTTON_DEBOUNCE_US))
+        {
+            button_stable_state = button_raw_state;
+
+            if (button_stable_state)
+            {
+                err = Encodeur_SetCounter(0);
+                if (err == ESP_OK)
+                {
+                    printf("Bouton SW appuye : compteur remis a 0.\n");
+                }
+                else
+                {
+                    printf("Erreur remise a zero compteur : %s\n", esp_err_to_name(err));
+                }
+                fflush(stdout);
+            }
+        }
+
+        counter = Encodeur_GetCounter();
 
         if (counter != last_displayed_counter)
         {
