@@ -44,11 +44,16 @@ esp_err_t Epot_Init(i2c_master_bus_handle_t bus_handle,
                     uint8_t gain_address,
                     uint8_t offset_address);
 
+/* Mode de test : un seul MCP45HV51 sur le bus I2C. */
+esp_err_t Epot_InitSingle(i2c_master_bus_handle_t bus_handle,
+                          uint8_t address);
+
 esp_err_t Epot_Deinit(void);
 
 esp_err_t Epot_SetRaw(epot_channel_t channel, uint8_t value);
 esp_err_t Epot_SetGainRaw(uint8_t value);
 esp_err_t Epot_SetOffsetRaw(uint8_t value);
+esp_err_t Epot_SetSingleRaw(uint8_t value);
 
 bool Epot_IsInitialized(void);
 
