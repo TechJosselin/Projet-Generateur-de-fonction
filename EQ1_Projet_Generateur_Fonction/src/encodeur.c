@@ -1,7 +1,7 @@
 /*===============================================================================================
 CFPT - Projet : Générateur de fonction
 Fichier      : encodeur.c
-Description  : Décodage quadrature du PEC12R sous interruption GPIO
+Description  : Décodage du PEC12R sous interruption GPIO
 ===============================================================================================*/
 
 #include "encodeur.h"
@@ -16,79 +16,58 @@ static gpio_num_t gPinB = GPIO_NUM_NC;
 static gpio_num_t gPinButton = GPIO_NUM_NC;
 
 static volatile int32_t gCounter = 0;
-static volatile int8_t gTransitionAccumulator = 0;
-static volatile uint8_t gLastState = 0;
+static volatile int8_t gPulseAccumulator = 0;
 
-static uint8_t gEdgesPerStep = 4U;
+static uint8_t gEdgesPerStep = 1U;
 static bool gReverseDirection = false;
 static bool gEncodeurInitialized = false;
 static bool gOwnsIsrService = false;
 
 static portMUX_TYPE gEncodeurMux = portMUX_INITIALIZER_UNLOCKED;
 
-/*
- * Table de décodage quadrature.
- * Index = (ancien_etat << 2) | nouvel_etat
- * Etats A/B codés sur 2 bits.
- * Les transitions invalides ou dues à un rebond retournent 0.
- */
-static const int8_t gTransitionTable[16] =
-{
-     0, -1,  1,  0,
-     1,  0,  0, -1,
-    -1,  0,  0,  1,
-     0,  1, -1,  0
-};
-
 /*===============================================================================================
 PROTOTYPES DE FONCTIONS LOCALES
 ===============================================================================================*/
 static void Encodeur_IsrHandler(void *arg);
-static uint8_t Encodeur_ReadState(void);
 static void Encodeur_ResetState(void);
 
 /*===============================================================================================
 FONCTIONS LOCALES
 ===============================================================================================*/
-static uint8_t Encodeur_ReadState(void)
-{
-    const uint8_t a = (uint8_t)gpio_get_level(gPinA);
-    const uint8_t b = (uint8_t)gpio_get_level(gPinB);
-
-    return (uint8_t)((a << 1U) | b);
-}
-
-static void Encodeur_IsrHandler(void *arg)
+/*
+ * Le PEC12R-4220F-S0024 fournit 24 impulsions par tour.
+ * Pour le prototype, on compte uniquement le front montant du canal A.
+ * L'état du canal B au même instant donne le sens de rotation.
+ *
+ * Cette méthode est volontairement plus simple et plus robuste sur un encodeur
+ * mécanique à contacts que l'ancien décodage qui exigeait quatre transitions
+ * quadrature valides avant de modifier le compteur.
+ */
+static void IRAM_ATTR Encodeur_IsrHandler(void *arg)
 {
     (void)arg;
 
-    const uint8_t new_state = Encodeur_ReadState();
-    int8_t delta;
-
-    portENTER_CRITICAL_ISR(&gEncodeurMux);
-
-    delta = gTransitionTable[(gLastState << 2U) | new_state];
-    gLastState = new_state;
+    const int level_b = gpio_get_level(gPinB);
+    int8_t direction = (level_b != 0) ? 1 : -1;
 
     if (gReverseDirection)
     {
-        delta = (int8_t)-delta;
+        direction = (int8_t)-direction;
     }
 
-    if (delta != 0)
-    {
-        gTransitionAccumulator = (int8_t)(gTransitionAccumulator + delta);
+    portENTER_CRITICAL_ISR(&gEncodeurMux);
 
-        if (gTransitionAccumulator >= (int8_t)gEdgesPerStep)
-        {
-            gCounter++;
-            gTransitionAccumulator = 0;
-        }
-        else if (gTransitionAccumulator <= -(int8_t)gEdgesPerStep)
-        {
-            gCounter--;
-            gTransitionAccumulator = 0;
-        }
+    gPulseAccumulator = (int8_t)(gPulseAccumulator + direction);
+
+    if (gPulseAccumulator >= (int8_t)gEdgesPerStep)
+    {
+        gCounter++;
+        gPulseAccumulator = 0;
+    }
+    else if (gPulseAccumulator <= -(int8_t)gEdgesPerStep)
+    {
+        gCounter--;
+        gPulseAccumulator = 0;
     }
 
     portEXIT_CRITICAL_ISR(&gEncodeurMux);
@@ -99,15 +78,14 @@ static void Encodeur_ResetState(void)
     gPinA = GPIO_NUM_NC;
     gPinB = GPIO_NUM_NC;
     gPinButton = GPIO_NUM_NC;
-    gEdgesPerStep = 4U;
+    gEdgesPerStep = 1U;
     gReverseDirection = false;
     gEncodeurInitialized = false;
     gOwnsIsrService = false;
 
     portENTER_CRITICAL(&gEncodeurMux);
     gCounter = 0;
-    gTransitionAccumulator = 0;
-    gLastState = 0;
+    gPulseAccumulator = 0;
     portEXIT_CRITICAL(&gEncodeurMux);
 }
 
@@ -144,17 +122,36 @@ esp_err_t Encodeur_Init(gpio_num_t pin_a,
     gEdgesPerStep = edges_per_step;
     gReverseDirection = reverse_direction;
 
-    const gpio_config_t encoder_config =
+    /*
+     * A déclenche l'interruption sur front montant.
+     * B est lu dans l'ISR pour déterminer le sens.
+     */
+    const gpio_config_t encoder_a_config =
     {
-        .pin_bit_mask = (1ULL << (uint32_t)gPinA) |
-                        (1ULL << (uint32_t)gPinB),
+        .pin_bit_mask = (1ULL << (uint32_t)gPinA),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_ANYEDGE,
+        .intr_type = GPIO_INTR_POSEDGE,
     };
 
-    err = gpio_config(&encoder_config);
+    err = gpio_config(&encoder_a_config);
+    if (err != ESP_OK)
+    {
+        Encodeur_ResetState();
+        return err;
+    }
+
+    const gpio_config_t encoder_b_config =
+    {
+        .pin_bit_mask = (1ULL << (uint32_t)gPinB),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+
+    err = gpio_config(&encoder_b_config);
     if (err != ESP_OK)
     {
         Encodeur_ResetState();
@@ -179,8 +176,7 @@ esp_err_t Encodeur_Init(gpio_num_t pin_a,
 
     portENTER_CRITICAL(&gEncodeurMux);
     gCounter = 0;
-    gTransitionAccumulator = 0;
-    gLastState = Encodeur_ReadState();
+    gPulseAccumulator = 0;
     portEXIT_CRITICAL(&gEncodeurMux);
 
     err = gpio_install_isr_service(0);
@@ -210,18 +206,6 @@ esp_err_t Encodeur_Init(gpio_num_t pin_a,
         return err;
     }
 
-    err = gpio_isr_handler_add(gPinB, Encodeur_IsrHandler, NULL);
-    if (err != ESP_OK)
-    {
-        gpio_isr_handler_remove(gPinA);
-        if (gOwnsIsrService)
-        {
-            gpio_uninstall_isr_service();
-        }
-        Encodeur_ResetState();
-        return err;
-    }
-
     gEncodeurInitialized = true;
     return ESP_OK;
 }
@@ -237,12 +221,6 @@ esp_err_t Encodeur_Deinit(void)
     }
 
     err = gpio_isr_handler_remove(gPinA);
-    if ((err != ESP_OK) && (first_error == ESP_OK))
-    {
-        first_error = err;
-    }
-
-    err = gpio_isr_handler_remove(gPinB);
     if ((err != ESP_OK) && (first_error == ESP_OK))
     {
         first_error = err;
@@ -281,7 +259,7 @@ esp_err_t Encodeur_SetCounter(int32_t value)
 
     portENTER_CRITICAL(&gEncodeurMux);
     gCounter = value;
-    gTransitionAccumulator = 0;
+    gPulseAccumulator = 0;
     portEXIT_CRITICAL(&gEncodeurMux);
 
     return ESP_OK;
