@@ -94,8 +94,16 @@ GENERATEUR DDS AD9833
 /*===============================================================================================
 POTENTIOMETRES NUMERIQUES MCP45HV51
 ===============================================================================================*/
+/*
+ * Configuration finale prévue :
+ *   - EPOT Gain   : 0x3E
+ *   - EPOT Offset : 0x3F
+ *
+ * Le driver n'impose volontairement aucune valeur de wiper au démarrage.
+ * Les valeurs seront commandées par la couche signaux après calibration de
+ * l'étage analogique.
+ */
 #define SYSTEM_EPOT_GAIN_I2C_ADDRESS            0x3EU
 #define SYSTEM_EPOT_OFFSET_I2C_ADDRESS          0x3FU
-#define SYSTEM_EPOT_TEST_RAW_VALUE              127U
 
 #endif /* HARDWARE_CONFIG_H */
