@@ -31,11 +31,25 @@ CONSTANTES LOCALES
 #define ENCODER_BUTTON_DEBOUNCE_MS              30U
 #define ENCODER_BUTTON_DEBOUNCE_US              ((int64_t)ENCODER_BUTTON_DEBOUNCE_MS * 1000LL)
 
+/*
+ * Mode d'intégration actuel :
+ *   Encodeur -> valeur 0..255 -> OLED
+ *                            -> fréquence AD9833 en Hz
+ *                            -> wiper brut MCP45HV51 Gain
+ *
+ * Ce couplage permet de vérifier toute la chaîne logicielle en temps réel.
+ * Il sera remplacé ensuite par les vraies conversions fréquence / amplitude / offset.
+ */
+#define LIVE_CONTROL_MIN_VALUE                  ((int32_t)EPOT_RAW_MIN)
+#define LIVE_CONTROL_MAX_VALUE                  ((int32_t)EPOT_RAW_MAX)
+#define LIVE_CONTROL_INITIAL_VALUE              127
+
 /*===============================================================================================
 VARIABLES LOCALES
 ===============================================================================================*/
 static bool gOledCommunicationOk = false;
 static bool gAd9833CommandOk = false;
+static bool gEpotCommunicationOk = false;
 
 /*===============================================================================================
 PROTOTYPES DE FONCTIONS LOCALES
@@ -49,6 +63,8 @@ static void InitAndTestOled(void);
 static void InitEncoder(void);
 static void InitEpot(void);
 static void InitAndTestAd9833(void);
+static int32_t ClampLiveControlValue(int32_t value);
+static esp_err_t ApplyLiveControlValue(int32_t value);
 
 /*===============================================================================================
 FONCTIONS LOCALES
@@ -137,19 +153,19 @@ static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long hea
     printf("\n");
     printf("Test OLED     : %s\n", gOledCommunicationOk ? "OK" : "ECHEC / NON TESTE");
     printf("Encodeur      : %s\n", encoder_initialized ? "INITIALISE" : "NON INITIALISE");
-    printf("Compteur      : %ld\n", (long)encoder_counter);
+    printf("Valeur live   : %ld\n", (long)encoder_counter);
     printf("Bouton SW     : %s\n", Encodeur_IsButtonPressed() ? "APPUYE" : "RELACHE");
     printf("Driver AD9833 : %s\n", ad9833_initialized ? "INITIALISE" : "NON INITIALISE");
-    printf("Commande SPI  : %s\n", gAd9833CommandOk ? "ENVOYEE" : "ECHEC / NON TESTEE");
+    printf("Commande SPI  : %s\n", gAd9833CommandOk ? "OK" : "ECHEC / NON TESTEE");
 
     if (signal_available)
     {
         printf("Signal        : %s / %.3f Hz\n",
                Signaux_TypeToString(signal.type),
                (double)signal.frequency_hz);
-        printf("Amplitude     : %.3f Vpp (conversion EPOT non calibree)\n",
+        printf("Amplitude     : %.3f Vpp (consigne non calibree)\n",
                (double)signal.amplitude_vpp);
-        printf("Offset        : %.3f V (conversion EPOT non calibree)\n",
+        printf("Offset        : %.3f V (consigne non calibree)\n",
                (double)signal.offset_v);
     }
     else
@@ -157,7 +173,10 @@ static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long hea
         printf("Signal        : NON APPLIQUE\n");
     }
 
-    printf("Driver EPOT   : %s\n", epot_initialized ? "INITIALISE" : "NON INITIALISE");
+    printf("Driver EPOT   : %s / commande %s\n",
+           epot_initialized ? "INITIALISE" : "NON INITIALISE",
+           gEpotCommunicationOk ? "OK" : "NON VALIDEE");
+
     printf("EPOT Gain     : adresse 0x%02X / wiper ", SYSTEM_EPOT_GAIN_I2C_ADDRESS);
     if (gain_raw_available)
     {
@@ -220,7 +239,7 @@ static void InitAndTestOled(void)
     if (err == ESP_OK)
     {
         gOledCommunicationOk = true;
-        printf("OLED OK : compteur 0 affiche.\n");
+        printf("OLED OK.\n");
     }
     else
     {
@@ -249,8 +268,6 @@ static void InitEncoder(void)
     printf("  A/CLK : GPIO%d\n", (int)SYSTEM_ENCODER_A_GPIO);
     printf("  B/DT  : GPIO%d\n", (int)SYSTEM_ENCODER_B_GPIO);
     printf("  SW    : GPIO%d\n", (int)SYSTEM_ENCODER_BUTTON_GPIO);
-    printf("  Compteur initial : %ld\n", (long)Encodeur_GetCounter());
-    printf("  Bouton SW : remise du compteur a 0\n");
     fflush(stdout);
 }
 
@@ -268,7 +285,7 @@ static void InitEpot(void)
         FatalBlinkLoop("Epot_Init", err);
     }
 
-    printf("Driver EPOT initialise. Les wipers ne sont pas modifies au demarrage.\n");
+    printf("Driver EPOT initialise.\n");
     fflush(stdout);
 }
 
@@ -297,6 +314,10 @@ static void InitAndTestAd9833(void)
 
     printf("Driver AD9833 initialise.\n");
 
+    /*
+     * Le preset fournit la forme d'onde de départ.
+     * Sa fréquence sera ensuite remplacée en temps réel par la valeur de l'encodeur.
+     */
     err = Signaux_ApplyPreset(SYSTEM_AD9833_TEST_PRESET);
     if (err != ESP_OK)
     {
@@ -306,21 +327,70 @@ static void InitAndTestAd9833(void)
         return;
     }
 
-    signaux_signal_t signal;
-    if (Signaux_GetCurrent(&signal) == ESP_OK)
+    gAd9833CommandOk = true;
+    printf("Preset %u charge comme forme de signal de depart.\n", SYSTEM_AD9833_TEST_PRESET);
+    fflush(stdout);
+}
+
+static int32_t ClampLiveControlValue(int32_t value)
+{
+    if (value < LIVE_CONTROL_MIN_VALUE)
     {
-        printf("Preset %u applique : %s / %.3f Hz / %.3f Vpp / offset %.3f V\n",
-               SYSTEM_AD9833_TEST_PRESET,
-               Signaux_TypeToString(signal.type),
-               (double)signal.frequency_hz,
-               (double)signal.amplitude_vpp,
-               (double)signal.offset_v);
+        return LIVE_CONTROL_MIN_VALUE;
     }
 
-    printf("Note : les EPOT sont integres mais la conversion amplitude/offset -> wiper reste a calibrer.\n");
-    printf("Le SPI AD9833 n'a pas de retour ACK : le test confirme l'envoi des transactions, pas la presence physique du module.\n");
+    if (value > LIVE_CONTROL_MAX_VALUE)
+    {
+        return LIVE_CONTROL_MAX_VALUE;
+    }
+
+    return value;
+}
+
+/*
+ * Applique UNE MEME valeur logique aux deux blocs actuellement testés :
+ *   - AD9833 : valeur utilisée comme fréquence en Hz
+ *   - MCP45HV51 Gain : valeur utilisée comme wiper brut 0..255
+ *
+ * L'AD9833 est volontairement commandé avant le MCP afin que le chemin logiciel suive
+ * l'ordre demandé : Encodeur/OLED -> AD9833 -> MCP Gain.
+ */
+static esp_err_t ApplyLiveControlValue(int32_t value)
+{
+    signaux_signal_t signal;
+    esp_err_t err;
+
+    if ((value < LIVE_CONTROL_MIN_VALUE) || (value > LIVE_CONTROL_MAX_VALUE))
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    err = Signaux_GetCurrent(&signal);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+
+    signal.frequency_hz = (float)value;
+
+    err = Signaux_Apply(&signal);
+    if (err != ESP_OK)
+    {
+        gAd9833CommandOk = false;
+        return err;
+    }
+
     gAd9833CommandOk = true;
-    fflush(stdout);
+
+    err = Signaux_SetGainRaw((uint8_t)value);
+    if (err != ESP_OK)
+    {
+        gEpotCommunicationOk = false;
+        return err;
+    }
+
+    gEpotCommunicationOk = true;
+    return ESP_OK;
 }
 
 /*===============================================================================================
@@ -331,7 +401,8 @@ void app_main(void)
     esp_err_t err;
     const esp_reset_reason_t reset_reason = esp_reset_reason();
     unsigned long heartbeat_count = 0;
-    int32_t last_displayed_counter;
+    int32_t last_applied_value = -1;
+    int32_t last_displayed_value = -1;
     bool status_led_on = false;
     int64_t last_led_toggle_us;
     int64_t last_heartbeat_us;
@@ -353,7 +424,6 @@ void app_main(void)
     printf("\n========================================\n");
     printf("DEMARRAGE GENERATEUR DE FONCTION\n");
     printf("Reset reason : %d (%s)\n", (int)reset_reason, ResetReasonToString(reset_reason));
-    printf("Uptime au debut du diagnostic : %lld ms\n", (long long)(esp_timer_get_time() / 1000LL));
     printf("========================================\n");
     fflush(stdout);
 
@@ -372,23 +442,40 @@ void app_main(void)
     InitEpot();
     InitAndTestAd9833();
 
-    last_displayed_counter = Encodeur_GetCounter();
+    /* Valeur commune de départ affichée et appliquée aux deux composants. */
+    err = Encodeur_SetCounter(LIVE_CONTROL_INITIAL_VALUE);
+    if (err != ESP_OK)
+    {
+        FatalBlinkLoop("Encodeur_SetCounter", err);
+    }
+
+    err = ApplyLiveControlValue(LIVE_CONTROL_INITIAL_VALUE);
+    if (err != ESP_OK)
+    {
+        FatalBlinkLoop("ApplyLiveControlValue initial", err);
+    }
+    last_applied_value = LIVE_CONTROL_INITIAL_VALUE;
+
     if (Oled_IsInitialized())
     {
-        err = Oled_ShowCounter(last_displayed_counter);
-        if (err != ESP_OK)
+        err = Oled_ShowCounter(LIVE_CONTROL_INITIAL_VALUE);
+        if (err == ESP_OK)
+        {
+            gOledCommunicationOk = true;
+            last_displayed_value = LIVE_CONTROL_INITIAL_VALUE;
+        }
+        else
         {
             gOledCommunicationOk = false;
-            printf("Erreur affichage compteur initial : %s\n", esp_err_to_name(err));
+            printf("Erreur affichage valeur initiale : %s\n", esp_err_to_name(err));
         }
     }
 
-    printf("Test encodeur actif : tourner l'encodeur pour incrementer/decrementer le compteur.\n");
-    printf("Appuyer sur le bouton SW pour remettre le compteur a 0.\n");
-    printf("Test AD9833 actif : preset %u envoye au demarrage.\n", SYSTEM_AD9833_TEST_PRESET);
-    printf("EPOT integres : Gain 0x%02X / Offset 0x%02X.\n",
-           SYSTEM_EPOT_GAIN_I2C_ADDRESS,
-           SYSTEM_EPOT_OFFSET_I2C_ADDRESS);
+    printf("\nControle live actif.\n");
+    printf("Encodeur 0..255 -> OLED -> AD9833 (Hz) -> MCP Gain (raw).\n");
+    printf("Exemple : ecran 120 => AD9833 120 Hz et MCP Gain = 120/255.\n");
+    printf("Bouton SW : remise de la valeur a 0.\n");
+    printf("MCP Offset n'est pas modifie dans ce mode de test.\n");
     fflush(stdout);
 
     last_led_toggle_us = esp_timer_get_time();
@@ -403,7 +490,9 @@ void app_main(void)
         const int64_t now_us = esp_timer_get_time();
         const bool button_raw_state = Encodeur_IsButtonPressed();
         int32_t counter;
+        int32_t clamped_counter;
 
+        /* Debounce logiciel du bouton de l'encodeur. */
         if (button_raw_state != button_last_raw_state)
         {
             button_last_raw_state = button_raw_state;
@@ -417,42 +506,78 @@ void app_main(void)
 
             if (button_stable_state)
             {
-                err = Encodeur_SetCounter(0);
+                err = Encodeur_SetCounter(LIVE_CONTROL_MIN_VALUE);
                 if (err == ESP_OK)
                 {
-                    printf("Bouton SW appuye : compteur remis a 0.\n");
+                    printf("Bouton SW appuye : valeur remise a %ld.\n",
+                           (long)LIVE_CONTROL_MIN_VALUE);
                 }
                 else
                 {
-                    printf("Erreur remise a zero compteur : %s\n", esp_err_to_name(err));
+                    printf("Erreur remise a zero : %s\n", esp_err_to_name(err));
                 }
                 fflush(stdout);
             }
         }
 
+        /* Lecture de la nouvelle consigne donnée par l'encodeur. */
         counter = Encodeur_GetCounter();
+        clamped_counter = ClampLiveControlValue(counter);
 
-        if (counter != last_displayed_counter)
+        if (clamped_counter != counter)
         {
-            if (Oled_IsInitialized())
+            err = Encodeur_SetCounter(clamped_counter);
+            if (err != ESP_OK)
             {
-                err = Oled_ShowCounter(counter);
-                if (err == ESP_OK)
-                {
-                    gOledCommunicationOk = true;
-                }
-                else
-                {
-                    gOledCommunicationOk = false;
-                    printf("Erreur mise a jour OLED : %s\n", esp_err_to_name(err));
-                }
+                printf("Erreur limitation compteur : %s\n", esp_err_to_name(err));
             }
-
-            printf("Compteur encodeur : %ld\n", (long)counter);
-            fflush(stdout);
-            last_displayed_counter = counter;
+            counter = clamped_counter;
         }
 
+        /*
+         * Une modification de la valeur est appliquée d'abord au hardware :
+         * AD9833 puis MCP Gain. L'écran n'est rafraîchi qu'après succès afin que
+         * la valeur affichée corresponde toujours à la dernière consigne réellement envoyée.
+         */
+        if (counter != last_applied_value)
+        {
+            err = ApplyLiveControlValue(counter);
+            if (err == ESP_OK)
+            {
+                last_applied_value = counter;
+                printf("Valeur appliquee : %ld -> AD9833 %.0f Hz -> MCP Gain %ld/255\n",
+                       (long)counter,
+                       (double)Ad9833_GetFrequencyHz(),
+                       (long)counter);
+            }
+            else
+            {
+                printf("Erreur application valeur %ld : %s\n",
+                       (long)counter,
+                       esp_err_to_name(err));
+            }
+            fflush(stdout);
+        }
+
+        if ((last_applied_value >= LIVE_CONTROL_MIN_VALUE) &&
+            (last_applied_value != last_displayed_value) &&
+            Oled_IsInitialized())
+        {
+            err = Oled_ShowCounter(last_applied_value);
+            if (err == ESP_OK)
+            {
+                gOledCommunicationOk = true;
+                last_displayed_value = last_applied_value;
+            }
+            else
+            {
+                gOledCommunicationOk = false;
+                printf("Erreur mise a jour OLED : %s\n", esp_err_to_name(err));
+                fflush(stdout);
+            }
+        }
+
+        /* LED de vie : changement d'état toutes les 500 ms. */
         if ((now_us - last_led_toggle_us) >= 500000LL)
         {
             status_led_on = !status_led_on;
@@ -460,30 +585,17 @@ void app_main(void)
             last_led_toggle_us = now_us;
         }
 
+        /* Diagnostic série léger chaque seconde. */
         if ((now_us - last_heartbeat_us) >= 1000000LL)
         {
-            const bool system_initialized = System_IsInitialized();
-            const i2c_master_bus_handle_t i2c_bus = System_GetI2cBus();
-            const bool epot_initialized = Epot_IsInitialized();
-            const bool oled_initialized = Oled_IsInitialized();
-            const bool encoder_initialized = Encodeur_IsInitialized();
-            const bool ad9833_initialized = Ad9833_IsInitialized();
-
             heartbeat_count++;
 
-            printf(
-                "Heartbeat #%lu - uptime : %lld ms - System : %s - I2C : %s - OLED : %s/%s - ENC : %s/%ld - AD9833 : %s/%s - EPOT : %s\n",
-                heartbeat_count,
-                (long long)(now_us / 1000LL),
-                system_initialized ? "OK" : "ERREUR",
-                (i2c_bus != NULL) ? "READY" : "NULL",
-                oled_initialized ? "INIT" : "ABSENT",
-                gOledCommunicationOk ? "OK" : "ECHEC",
-                encoder_initialized ? "INIT" : "ERREUR",
-                (long)counter,
-                ad9833_initialized ? "INIT" : "ERREUR",
-                gAd9833CommandOk ? "SPI_OK" : "ECHEC",
-                epot_initialized ? "INIT" : "ERREUR");
+            printf("Heartbeat #%lu - valeur=%ld - AD9833=%.0fHz - EPOT=%s - OLED=%s\n",
+                   heartbeat_count,
+                   (long)last_applied_value,
+                   Ad9833_GetFrequencyHz(),
+                   gEpotCommunicationOk ? "OK" : "ECHEC",
+                   gOledCommunicationOk ? "OK" : "ECHEC");
             fflush(stdout);
 
             if ((heartbeat_count % 5UL) == 0UL)
