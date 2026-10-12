@@ -67,12 +67,13 @@ ENCODEUR ROTATIF PEC12R-4220F-S0024
  *   - SW GND   -> GND
  *
  * Les entrées utilisent les pull-up internes de l'ESP32-C6.
- * Le décodage quadrature est réalisé sous interruption sur A et B.
+ * Le driver compte maintenant un front montant du canal A par impulsion
+ * et lit B pour déterminer le sens. Le PEC12R-S0024 fournit 24 impulsions/tour.
  */
 #define SYSTEM_ENCODER_A_GPIO                   GPIO_NUM_1
 #define SYSTEM_ENCODER_B_GPIO                   GPIO_NUM_2
 #define SYSTEM_ENCODER_BUTTON_GPIO              GPIO_NUM_0
-#define SYSTEM_ENCODER_EDGES_PER_STEP           4U
+#define SYSTEM_ENCODER_EDGES_PER_STEP           1U
 #define SYSTEM_ENCODER_REVERSE_DIRECTION        0
 #define SYSTEM_ENCODER_POLL_PERIOD_MS           10U
 
