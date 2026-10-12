@@ -34,7 +34,6 @@ CONSTANTES LOCALES
 /*===============================================================================================
 VARIABLES LOCALES
 ===============================================================================================*/
-static bool gEpotCommunicationOk = false;
 static bool gOledCommunicationOk = false;
 static bool gAd9833CommandOk = false;
 
@@ -46,9 +45,9 @@ static void StatusLedSet(int enabled);
 static const char *ResetReasonToString(esp_reset_reason_t reason);
 static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long heartbeat_count);
 static void FatalBlinkLoop(const char *message, esp_err_t error);
-static void TestEpotCommunication(void);
 static void InitAndTestOled(void);
 static void InitEncoder(void);
+static void InitEpot(void);
 static void InitAndTestAd9833(void);
 
 /*===============================================================================================
@@ -115,7 +114,11 @@ static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long hea
     const bool ad9833_initialized = Ad9833_IsInitialized();
     const int32_t encoder_counter = Encodeur_GetCounter();
     signaux_signal_t signal;
+    uint8_t gain_raw;
+    uint8_t offset_raw;
     const bool signal_available = (Signaux_GetCurrent(&signal) == ESP_OK);
+    const bool gain_raw_available = (Signaux_GetGainRaw(&gain_raw) == ESP_OK);
+    const bool offset_raw_available = (Signaux_GetOffsetRaw(&offset_raw) == ESP_OK);
 
     printf("\n========================================\n");
     printf("ETAT SYSTEME\n");
@@ -144,8 +147,10 @@ static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long hea
         printf("Signal        : %s / %.3f Hz\n",
                Signaux_TypeToString(signal.type),
                (double)signal.frequency_hz);
-        printf("Amplitude     : %.3f Vpp (non calibree)\n", (double)signal.amplitude_vpp);
-        printf("Offset        : %.3f V (non calibre)\n", (double)signal.offset_v);
+        printf("Amplitude     : %.3f Vpp (conversion EPOT non calibree)\n",
+               (double)signal.amplitude_vpp);
+        printf("Offset        : %.3f V (conversion EPOT non calibree)\n",
+               (double)signal.offset_v);
     }
     else
     {
@@ -153,9 +158,26 @@ static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long hea
     }
 
     printf("Driver EPOT   : %s\n", epot_initialized ? "INITIALISE" : "NON INITIALISE");
-    printf("EPOT Gain     : adresse 0x%02X\n", SYSTEM_EPOT_GAIN_I2C_ADDRESS);
-    printf("EPOT Offset   : adresse 0x%02X\n", SYSTEM_EPOT_OFFSET_I2C_ADDRESS);
-    printf("Test EPOT I2C : %s\n", gEpotCommunicationOk ? "OK" : "ECHEC / NON TESTE");
+    printf("EPOT Gain     : adresse 0x%02X / wiper ", SYSTEM_EPOT_GAIN_I2C_ADDRESS);
+    if (gain_raw_available)
+    {
+        printf("%u\n", gain_raw);
+    }
+    else
+    {
+        printf("non commande\n");
+    }
+
+    printf("EPOT Offset   : adresse 0x%02X / wiper ", SYSTEM_EPOT_OFFSET_I2C_ADDRESS);
+    if (offset_raw_available)
+    {
+        printf("%u\n", offset_raw);
+    }
+    else
+    {
+        printf("non commande\n");
+    }
+
     printf("========================================\n\n");
     fflush(stdout);
 }
@@ -172,29 +194,6 @@ static void FatalBlinkLoop(const char *message, esp_err_t error)
         StatusLedSet(0);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
-}
-
-static void TestEpotCommunication(void)
-{
-    const esp_err_t gain_err = Epot_SetGainRaw(SYSTEM_EPOT_TEST_RAW_VALUE);
-    const esp_err_t offset_err = Epot_SetOffsetRaw(SYSTEM_EPOT_TEST_RAW_VALUE);
-
-    if ((gain_err == ESP_OK) && (offset_err == ESP_OK))
-    {
-        gEpotCommunicationOk = true;
-        printf("Test EPOT I2C OK : Gain=%u, Offset=%u\n",
-               SYSTEM_EPOT_TEST_RAW_VALUE,
-               SYSTEM_EPOT_TEST_RAW_VALUE);
-    }
-    else
-    {
-        gEpotCommunicationOk = false;
-        printf("Test EPOT I2C ECHEC.\n");
-        printf("  Gain   : %s\n", esp_err_to_name(gain_err));
-        printf("  Offset : %s\n", esp_err_to_name(offset_err));
-    }
-
-    fflush(stdout);
 }
 
 static void InitAndTestOled(void)
@@ -255,6 +254,24 @@ static void InitEncoder(void)
     fflush(stdout);
 }
 
+static void InitEpot(void)
+{
+    printf("Initialisation MCP45HV51...\n");
+    printf("  Gain   : 0x%02X\n", SYSTEM_EPOT_GAIN_I2C_ADDRESS);
+    printf("  Offset : 0x%02X\n", SYSTEM_EPOT_OFFSET_I2C_ADDRESS);
+
+    const esp_err_t err = Epot_Init(System_GetI2cBus(),
+                                    SYSTEM_EPOT_GAIN_I2C_ADDRESS,
+                                    SYSTEM_EPOT_OFFSET_I2C_ADDRESS);
+    if (err != ESP_OK)
+    {
+        FatalBlinkLoop("Epot_Init", err);
+    }
+
+    printf("Driver EPOT initialise. Les wipers ne sont pas modifies au demarrage.\n");
+    fflush(stdout);
+}
+
 static void InitAndTestAd9833(void)
 {
     const ad9833_config_t config =
@@ -300,7 +317,7 @@ static void InitAndTestAd9833(void)
                (double)signal.offset_v);
     }
 
-    printf("Note : amplitude et offset ne sont pas encore calibres/pilotes par Signaux_Apply().\n");
+    printf("Note : les EPOT sont integres mais la conversion amplitude/offset -> wiper reste a calibrer.\n");
     printf("Le SPI AD9833 n'a pas de retour ACK : le test confirme l'envoi des transactions, pas la presence physique du module.\n");
     gAd9833CommandOk = true;
     fflush(stdout);
@@ -352,19 +369,8 @@ void app_main(void)
 
     InitAndTestOled();
     InitEncoder();
+    InitEpot();
     InitAndTestAd9833();
-
-    printf("Initialisation EPOT...\n");
-    err = Epot_Init(System_GetI2cBus(),
-                    SYSTEM_EPOT_GAIN_I2C_ADDRESS,
-                    SYSTEM_EPOT_OFFSET_I2C_ADDRESS);
-    if (err != ESP_OK)
-    {
-        FatalBlinkLoop("Epot_Init", err);
-    }
-
-    printf("Driver EPOT initialise.\n");
-    TestEpotCommunication();
 
     last_displayed_counter = Encodeur_GetCounter();
     if (Oled_IsInitialized())
@@ -380,6 +386,9 @@ void app_main(void)
     printf("Test encodeur actif : tourner l'encodeur pour incrementer/decrementer le compteur.\n");
     printf("Appuyer sur le bouton SW pour remettre le compteur a 0.\n");
     printf("Test AD9833 actif : preset %u envoye au demarrage.\n", SYSTEM_AD9833_TEST_PRESET);
+    printf("EPOT integres : Gain 0x%02X / Offset 0x%02X.\n",
+           SYSTEM_EPOT_GAIN_I2C_ADDRESS,
+           SYSTEM_EPOT_OFFSET_I2C_ADDRESS);
     fflush(stdout);
 
     last_led_toggle_us = esp_timer_get_time();
@@ -463,7 +472,7 @@ void app_main(void)
             heartbeat_count++;
 
             printf(
-                "Heartbeat #%lu - uptime : %lld ms - System : %s - I2C : %s - OLED : %s/%s - ENC : %s/%ld - AD9833 : %s/%s - EPOT : %s/%s\n",
+                "Heartbeat #%lu - uptime : %lld ms - System : %s - I2C : %s - OLED : %s/%s - ENC : %s/%ld - AD9833 : %s/%s - EPOT : %s\n",
                 heartbeat_count,
                 (long long)(now_us / 1000LL),
                 system_initialized ? "OK" : "ERREUR",
@@ -474,8 +483,7 @@ void app_main(void)
                 (long)counter,
                 ad9833_initialized ? "INIT" : "ERREUR",
                 gAd9833CommandOk ? "SPI_OK" : "ECHEC",
-                epot_initialized ? "INIT" : "ERREUR",
-                gEpotCommunicationOk ? "OK" : "ECHEC");
+                epot_initialized ? "INIT" : "ERREUR");
             fflush(stdout);
 
             if ((heartbeat_count % 5UL) == 0UL)
