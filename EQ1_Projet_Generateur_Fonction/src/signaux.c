@@ -4,8 +4,9 @@ Fichier      : signaux.c
 Description  : Gestion du signal complet et des 10 presets du cahier des charges
 
 Base d'intégration : presets et génération de Samuel (RDMR_GenerationSignal).
-L'AD9833 applique actuellement la forme et la fréquence. L'amplitude et l'offset restent mémorisés
-ici jusqu'à la phase de calibration de la chaîne analogique / des EPOT.
+L'AD9833 applique actuellement la forme et la fréquence. Le gain et l'offset sont déjà pilotables
+par valeurs brutes via les MCP45HV51 ; les conversions physiques seront ajoutées après calibration
+de la chaîne analogique.
 ===============================================================================================*/
 
 #include "signaux.h"
@@ -13,6 +14,7 @@ ici jusqu'à la phase de calibration de la chaîne analogique / des EPOT.
 #include <stddef.h>
 
 #include "ad9833.h"
+#include "epot.h"
 
 static const signaux_signal_t gPresets[SIGNAUX_PRESET_COUNT] =
 {
@@ -103,9 +105,10 @@ esp_err_t Signaux_Apply(const signaux_signal_t *signal)
     }
 
     /*
-     * amplitude_vpp et offset_v sont volontairement conservés dans le modèle du signal mais ne
-     * sont pas encore convertis en valeurs brutes pour les deux MCP45HV51. Cette conversion sera
-     * ajoutée après caractérisation/calibration de la chaîne analogique.
+     * amplitude_vpp et offset_v restent pour l'instant des valeurs physiques de consigne.
+     * Les deux EPOT sont accessibles avec Signaux_SetGainRaw() et Signaux_SetOffsetRaw(),
+     * mais aucune conversion Vpp/V -> wiper n'est appliquée ici avant calibration réelle
+     * de l'étage analogique.
      */
     gCurrentSignal = *signal;
     gHasCurrentSignal = true;
@@ -124,6 +127,36 @@ esp_err_t Signaux_ApplyPreset(uint8_t preset_number)
     }
 
     return Signaux_Apply(&signal);
+}
+
+esp_err_t Signaux_SetGainRaw(uint8_t raw_value)
+{
+    if (!Epot_IsChannelAvailable(EPOT_CHANNEL_GAIN))
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    return Epot_SetGainRaw(raw_value);
+}
+
+esp_err_t Signaux_GetGainRaw(uint8_t *out_raw_value)
+{
+    return Epot_GetLastRaw(EPOT_CHANNEL_GAIN, out_raw_value);
+}
+
+esp_err_t Signaux_SetOffsetRaw(uint8_t raw_value)
+{
+    if (!Epot_IsChannelAvailable(EPOT_CHANNEL_OFFSET))
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    return Epot_SetOffsetRaw(raw_value);
+}
+
+esp_err_t Signaux_GetOffsetRaw(uint8_t *out_raw_value)
+{
+    return Epot_GetLastRaw(EPOT_CHANNEL_OFFSET, out_raw_value);
 }
 
 bool Signaux_HasCurrentSignal(void)
