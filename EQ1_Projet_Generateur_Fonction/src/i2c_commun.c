@@ -41,3 +41,47 @@ i2c_master_bus_handle_t i2c_commun_bus(void)
 {
     return bus_partage;
 }
+
+bool i2c_commun_est_initialise(void)
+{
+    return bus_partage != NULL;
+}
+
+bool i2c_commun_adresse_presente(uint8_t adresse, int timeout_ms)
+{
+    if (bus_partage == NULL)
+    {
+        return false;
+    }
+
+    if (timeout_ms <= 0)
+    {
+        timeout_ms = SYSTEM_I2C_DIAG_PROBE_TIMEOUT_MS;
+    }
+
+    return i2c_master_probe(bus_partage, adresse, timeout_ms) == ESP_OK;
+}
+
+bool i2c_commun_trouver_adresse(uint8_t adresse_min,
+                                uint8_t adresse_max,
+                                int timeout_ms,
+                                uint8_t *adresse_trouvee)
+{
+    if ((bus_partage == NULL) ||
+        (adresse_trouvee == NULL) ||
+        (adresse_min > adresse_max))
+    {
+        return false;
+    }
+
+    for (uint16_t adresse = adresse_min; adresse <= adresse_max; ++adresse)
+    {
+        if (i2c_commun_adresse_presente((uint8_t)adresse, timeout_ms))
+        {
+            *adresse_trouvee = (uint8_t)adresse;
+            return true;
+        }
+    }
+
+    return false;
+}
