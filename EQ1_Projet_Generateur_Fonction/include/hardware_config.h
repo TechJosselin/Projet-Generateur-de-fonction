@@ -46,11 +46,12 @@ ECRAN OLED SH1106 1.3\" I2C
  *   - pin 2 -> VDD
  * Ces straps ne sélectionnent pas l'adresse I2C.
  *
- * L'écran utilisé sur le prototype reste à 0x3C. Le fallback 0x3D est volontairement
- * désactivé car 0x3D est maintenant réservé au MCP45HV51 du canal Gain.
+ * L'écran utilisé sur le prototype est normalement à 0x3C.
+ * 0x3D est de nouveau disponible comme adresse secondaire de détection,
+ * car le MCP45HV51 du canal Gain est maintenant câblé à 0x3F.
  */
 #define SYSTEM_OLED_I2C_ADDRESS_PRIMARY         0x3CU
-#define SYSTEM_OLED_I2C_ADDRESS_SECONDARY       0x3CU
+#define SYSTEM_OLED_I2C_ADDRESS_SECONDARY       0x3DU
 #define SYSTEM_OLED_I2C_SPEED_HZ                400000U
 #define SYSTEM_OLED_WIDTH                       128U
 #define SYSTEM_OLED_HEIGHT                      64U
@@ -98,12 +99,12 @@ POTENTIOMETRES NUMERIQUES MCP45HV51
 ===============================================================================================*/
 /*
  * Adressage matériel actuellement câblé :
- *   - Gain   : A1 = 0, A0 = 1 -> 0x3D
+ *   - Gain   : A1 = 1, A0 = 1 -> 0x3F
  *   - Offset : A1 = 1, A0 = 0 -> 0x3E
  *
- * L'OLED du prototype est à 0x3C afin d'éviter toute collision I2C.
+ * L'OLED peut ainsi utiliser 0x3C en primaire et 0x3D en secondaire sans collision I2C.
  */
-#define SYSTEM_EPOT_GAIN_I2C_ADDRESS            0x3DU
+#define SYSTEM_EPOT_GAIN_I2C_ADDRESS            0x3FU
 #define SYSTEM_EPOT_OFFSET_I2C_ADDRESS          0x3EU
 
 #endif /* HARDWARE_CONFIG_H */
