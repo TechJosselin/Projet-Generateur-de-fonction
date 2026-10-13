@@ -32,20 +32,20 @@ static void afficher_apercu(void){
     pied("SIMU: APERCU UI");
 }
 static void afficher_sortie(void){
-    liste_scrollee("SORTIE ANALOGIQUE",c_sortie,NB_SORTIE,ligne_sortie);
+    liste_scrollee("SORTIE DDS / TEST",c_sortie,NB_SORTIE,ligne_sortie);
     char s[28];int index=integration_signal_selectionne();
-    snprintf(s,sizeof(s),"VOUT:%s SIG:%s",integration_sortie_reelle_active()?"ON":"OFF",index<0?"--":"OK");
+    snprintf(s,sizeof(s),"DDS:%s SIG:%s",integration_sortie_reelle_active()?"ON":"OFF",index<0?"--":"OK");
     oled_ligne(1,s,false);
 }
 static void afficher_sortie_info(void){
-    titre("ETAT DE LA SORTIE");
+    titre("ETAT SORTIE DDS");
     char l[36];int index=integration_signal_selectionne();
-    snprintf(l,sizeof(l),"SORTIE REELLE: %s",integration_sortie_reelle_active()?"ON":"OFF");oled_ligne(1,l,false);
+    snprintf(l,sizeof(l),"SORTIE DDS: %s",integration_sortie_reelle_active()?"ON":"OFF");oled_ligne(1,l,false);
     snprintf(l,sizeof(l),"SIG. CHOISI: %s",index<0?"AUCUN":"OUI");oled_ligne(2,l,false);
     if(index>=0){snprintf(l,sizeof(l),"NUMERO: %02d",index+1);oled_ligne(3,l,false);}
     oled_ligne(4,integration_ad9833_disponible()?"AD9833 DRV: PRET":"AD9833 DRV: ABS",false);
     snprintf(l,sizeof(l),"EPOT G/O: %s/%s",integration_epot_gain_present()?"OK":"--",integration_epot_offset_present()?"OK":"--");oled_ligne(5,l,false);
-    oled_ligne(6,"ACTIVATION: BLOQUEE",false);
+    oled_ligne(6,"AMP/OFF: NON APPLIQUES",false);
     pied("LONG: RETOUR");
 }
 static void afficher_digitales(void){
@@ -62,10 +62,10 @@ static void afficher_materiel(void){
     char l[32];uint8_t adr=0;
     oled_ligne(1,integration_ad9833_disponible()?"AD9833 SPI: INIT":"AD9833 SPI: ABS",false);
     snprintf(l,sizeof(l),"GAIN 3F:%s OFF 3E:%s",integration_epot_gain_present()?"OK":"--",integration_epot_offset_present()?"OK":"--");oled_ligne(2,l,false);
-    if(integration_eeprom_detectee(&adr))snprintf(l,sizeof(l),"EEPROM 0x%02X: DETECT",adr);else snprintf(l,sizeof(l),"EEPROM 50-57: ABS");oled_ligne(3,l,false);
+    if(integration_eeprom_detectee(&adr))snprintf(l,sizeof(l),"EEPROM 0x%02X: DETECT",adr);else snprintf(l,sizeof(l),"EEPROM 0x50: ABS");oled_ligne(3,l,false);
     oled_ligne(4,"LT1206: TEST MANUEL",false);
     oled_ligne(5,"TRACO: TEST MANUEL",false);
-    snprintf(l,sizeof(l),"VOUT: %s / CALIB.",integration_sortie_reelle_active()?"ON":"OFF");oled_ligne(6,l,false);
+    snprintf(l,sizeof(l),"DDS:%s ANA:NON CAL",integration_sortie_reelle_active()?"ON":"OFF");oled_ligne(6,l,false);
     pied("LONG: RETOUR");
 }
 static void afficher_memoire(void){
