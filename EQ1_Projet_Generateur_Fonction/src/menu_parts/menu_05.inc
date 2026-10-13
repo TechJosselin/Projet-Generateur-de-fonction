@@ -37,7 +37,7 @@
         default:retour();break;
         }break;
     case PAGE_USB_INFO:case PAGE_USB_ECRITURE:case PAGE_USB_LECTURE:retour();break;
-    case PAGE_DIAGNOSTIC:retour();break;
+    case PAGE_DIAGNOSTIC:c_diag=(c_diag+1)%NB_DIAG;redessiner=true;break;
     case PAGE_REGLAGES:
         if(c_reglages==3)retour();
         else{
@@ -62,7 +62,7 @@ void menu_traiter(evenement_ui_t e){
     if(e==UI_ROTATION_PLUS)compteur_plus++;
     if(e==UI_ROTATION_MOINS)compteur_moins++;
     if(e==UI_CLIC)compteur_clic++;
-    if(e==UI_APPUI_LONG){retour();return;}
+    if(e==UI_APPUI_LONG){compteur_long++;retour();return;}
     if(e==UI_CLIC){valider();redessiner=true;return;}
     if(e!=UI_ROTATION_PLUS && e!=UI_ROTATION_MOINS)return;
     int d=e==UI_ROTATION_PLUS?1:-1;
@@ -74,6 +74,11 @@ void menu_traiter(evenement_ui_t e){
     case PAGE_SORTIE:c_sortie=borne(c_sortie+d,0,NB_SORTIE-1);break;
     case PAGE_MEMOIRE:c_memoire=borne(c_memoire+d,0,NB_MEMOIRE-1);break;
     case PAGE_USB:c_usb=borne(c_usb+d,0,NB_USB-1);break;
+    case PAGE_DIAGNOSTIC:
+        c_diag+=d;
+        if(c_diag<0)c_diag=NB_DIAG-1;
+        else if(c_diag>=NB_DIAG)c_diag=0;
+        break;
     case PAGE_REGLAGES:c_reglages=borne(c_reglages+d,0,NB_REGLAGES-1);break;
     case PAGE_EDIT_PAS:
         pas_en_cours=borne(pas_en_cours+d,0,champ_pas==0?PAS_FREQ_N-1:PAS_VOLT_N-1);break;
@@ -85,7 +90,7 @@ void menu_traiter(evenement_ui_t e){
 void menu_periodique(void){
     int64_t maintenant=esp_timer_get_time();
     if(page==PAGE_MESSAGE && maintenant>=message_jusque)aller(apres_message);
-    if(page==PAGE_DIAGNOSTIC && maintenant-dernier_diag>=250000LL){
+    if(page==PAGE_DIAGNOSTIC && maintenant-dernier_diag>=500000LL){
         dernier_diag=maintenant;redessiner=true;
     }
     if(redessiner)afficher();
