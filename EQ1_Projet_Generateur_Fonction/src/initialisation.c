@@ -14,28 +14,21 @@ static bool gSystemInitialized = false;
 
 static const char *I2cAddressDescription(uint8_t address)
 {
-    if (address == SYSTEM_OLED_I2C_ADDRESS_PRIMARY)
+    switch (address)
     {
-        return "OLED SH1106 (primaire)";
+        case SYSTEM_OLED_I2C_ADDRESS_PRIMARY:   return "OLED SH1106 (primaire)";
+        case SYSTEM_OLED_I2C_ADDRESS_SECONDARY: return "OLED SH1106 (secondaire)";
+        case SYSTEM_EPOT_OFFSET_I2C_ADDRESS:    return "EPOT Offset MCP45HV51 (A1=1 A0=0)";
+        case SYSTEM_EPOT_GAIN_I2C_ADDRESS:      return "EPOT Gain MCP45HV51 (A1=1 A0=1)";
+        case SYSTEM_EEPROM_I2C_ADDRESS:         return "EEPROM 24LC32 (A2=A1=A0=0)";
+        default:
+            if ((address >= SYSTEM_EEPROM_I2C_ADDRESS_MIN) &&
+                (address <= SYSTEM_EEPROM_I2C_ADDRESS_MAX))
+            {
+                return "EEPROM 24LC32 autre configuration d'adresse";
+            }
+            return "peripherique I2C non identifie";
     }
-    if (address == SYSTEM_OLED_I2C_ADDRESS_SECONDARY)
-    {
-        return "OLED SH1106 (secondaire)";
-    }
-    if (address == SYSTEM_EPOT_OFFSET_I2C_ADDRESS)
-    {
-        return "EPOT Offset MCP45HV51";
-    }
-    if (address == SYSTEM_EPOT_GAIN_I2C_ADDRESS)
-    {
-        return "EPOT Gain MCP45HV51";
-    }
-    if ((address >= SYSTEM_EEPROM_I2C_ADDRESS_MIN) &&
-        (address <= SYSTEM_EEPROM_I2C_ADDRESS_MAX))
-    {
-        return "EEPROM 24LC32 possible";
-    }
-    return "peripherique I2C non identifie";
 }
 
 esp_err_t System_Init(void)
@@ -65,24 +58,33 @@ i2c_master_bus_handle_t System_GetI2cBus(void)
 
 void System_ScanI2cBus(void)
 {
-    if (!i2c_commun_est_initialise())
+    const i2c_master_bus_handle_t bus = i2c_commun_bus();
+    if (bus == NULL)
     {
         printf("I2C: bus non initialise.\n");
         return;
     }
 
-    printf("\n===== SCAN I2C =====\n");
+    unsigned trouves = 0U;
+
+    printf("\n===== SCAN I2C BRUT =====\n");
     for (uint8_t address = 0x08U; address <= 0x77U; address++)
     {
-        if (i2c_commun_adresse_presente(address, SYSTEM_I2C_DIAG_PROBE_TIMEOUT_MS))
+        const esp_err_t err = i2c_master_probe(bus,
+                                               address,
+                                               SYSTEM_I2C_DIAG_PROBE_TIMEOUT_MS);
+        if (err == ESP_OK)
         {
+            ++trouves;
             printf("0x%02X : %s\n", address, I2cAddressDescription(address));
         }
     }
-    printf("====================\n");
+    printf("Total detecte : %u peripherique(s)\n", trouves);
+    printf("Attendu       : 0x3C OLED, 0x3E OFFSET, 0x3F GAIN, 0x50 EEPROM\n");
+    printf("=========================\n\n");
 }
 
 bool System_IsInitialized(void)
 {
-    return gSystemInitialized && i2c_commun_est_initialise();
+    return gSystemInitialized && (i2c_commun_bus() != NULL);
 }
