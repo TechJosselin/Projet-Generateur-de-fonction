@@ -32,7 +32,7 @@ static const char *accueil[NB_ACCUEIL]={
 };
 static const char *detail_fin[4]={"Apercu graphique","Dupliquer signal","Supprimer signal","Retour liste"};
 static const char *sortie_options[NB_SORTIE]={
-    "Etat / Signal", "Activer VOUT", "Desactiver VOUT", "Sorties digitales", "Materiel analog.", "Retour"
+    "Etat / Signal", "Activer DDS test", "Couper DDS test", "Sorties digitales", "Materiel analog.", "Retour"
 };
 static const char *memoire_options[NB_MEMOIRE]={
     "Etat de la RAM", "Sauver en EEPROM", "Charger EEPROM", "Presets d'usine", "Retour"
