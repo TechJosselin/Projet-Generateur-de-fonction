@@ -24,7 +24,7 @@ static void afficher_diag_i2c(void){
     if(oled_est_present())snprintf(l,sizeof(l),"OLED 0x%02X: OK",oled_adresse());else snprintf(l,sizeof(l),"OLED: ABSENT");oled_ligne(2,l,false);
     snprintf(l,sizeof(l),"GAIN 0x3F: %s",integration_epot_gain_present()?"OK":"ABS");oled_ligne(3,l,false);
     snprintf(l,sizeof(l),"OFFS 0x3E: %s",integration_epot_offset_present()?"OK":"ABS");oled_ligne(4,l,false);
-    if(integration_eeprom_detectee(&adr))snprintf(l,sizeof(l),"EEPROM 0x%02X: OK",adr);else snprintf(l,sizeof(l),"EEPROM 50-57: ABS");oled_ligne(5,l,false);
+    if(integration_eeprom_detectee(&adr))snprintf(l,sizeof(l),"EEPROM 0x%02X: OK",adr);else snprintf(l,sizeof(l),"EEPROM 0x50: ABS");oled_ligne(5,l,false);
     oled_ligne(6,"ACK I2C TEMPS REEL",false);
     pied("ROT:PAGE LONG:RETOUR");
 }
@@ -41,7 +41,7 @@ static void afficher_diag_dds(void){
     }
     snprintf(l,sizeof(l),"DDS SORTIE: %s",integration_sortie_reelle_active()?"ON":"OFF");oled_ligne(4,l,false);
     snprintf(l,sizeof(l),"EPOT G/O: %s/%s",integration_epot_gain_present()?"OK":"--",integration_epot_offset_present()?"OK":"--");oled_ligne(5,l,false);
-    oled_ligne(6,"VOUT: BLOQUE CALIB.",false);
+    oled_ligne(6,"AMP/OFF: NON APPLIQUES",false);
     pied("ROT:PAGE LONG:RETOUR");
 }
 static void afficher_diag_encodeur(void){
@@ -106,7 +106,7 @@ static void afficher_infos(void){
     oled_ligne(3,"OLED SH1106 128X64",false);
     oled_ligne(4,"ENCODEUR PEC12R IRQ",false);
     oled_ligne(5,"INTEGRATION UI V4",false);
-    oled_ligne(6,"VOUT: CALIB. A FAIRE",false);
+    oled_ligne(6,"DDS TEST / ANA CALIB",false);
     pied("LONG: RETOUR");
 }
 static void afficher_confirm(void){
@@ -118,7 +118,7 @@ static void afficher_confirm(void){
     case CONFIRMER_USINE:libelle="RESTAURER USINE ?";precision="10 SIGNAUX EN RAM";break;
     case CONFIRMER_SAUVER:libelle="SAUVER EEPROM ?";precision="ECRASER ANCIENNES ?";break;
     case CONFIRMER_CHARGER:libelle="CHARGER EEPROM ?";precision="REMPLACER RAM ?";break;
-    case CONFIRMER_VOUT_ON:libelle="ACTIVER VOUT ?";precision="VERIFIER CONNEXIONS";break;
+    case CONFIRMER_VOUT_ON:libelle="ACTIVER DDS ?";precision="TEST AU SCOPE / BRUT";break;
     default:break;
     }
     oled_ligne(1,libelle,false);
