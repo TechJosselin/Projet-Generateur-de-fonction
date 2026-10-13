@@ -70,14 +70,14 @@ ENCODEUR ROTATIF PEC12R-4220F-S0024
  *   - SW       -> D0 / GPIO0
  *   - SW GND   -> GND
  *
- * Le PEC12R-4220F-S0024 est un modèle 24 détentes / 24 impulsions.
- * Le driver génère donc un seul événement UI sur le front montant de A,
- * lit B pour connaître le sens et applique un anti-rebond logiciel.
+ * Sens voulu dans le menu :
+ *   - rotation à droite  -> descendre
+ *   - rotation à gauche  -> remonter
  */
 #define SYSTEM_ENCODER_A_GPIO                   GPIO_NUM_1
 #define SYSTEM_ENCODER_B_GPIO                   GPIO_NUM_2
 #define SYSTEM_ENCODER_BUTTON_GPIO              GPIO_NUM_0
-#define SYSTEM_ENCODER_REVERSE_DIRECTION        0
+#define SYSTEM_ENCODER_REVERSE_DIRECTION        1
 
 /*===============================================================================================
 GENERATEUR DDS AD9833
