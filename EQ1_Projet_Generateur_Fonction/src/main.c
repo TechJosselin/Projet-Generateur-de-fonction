@@ -36,6 +36,7 @@ CONSTANTES LOCALES
  *   Encodeur -> valeur 0..255 -> OLED
  *                            -> fréquence AD9833 en Hz
  *                            -> wiper brut MCP45HV51 Gain
+ *                            -> wiper brut MCP45HV51 Offset
  *
  * Ce couplage permet de vérifier toute la chaîne logicielle en temps réel.
  * Il sera remplacé ensuite par les vraies conversions fréquence / amplitude / offset.
@@ -348,12 +349,13 @@ static int32_t ClampLiveControlValue(int32_t value)
 }
 
 /*
- * Applique UNE MEME valeur logique aux deux blocs actuellement testés :
+ * Applique UNE MEME valeur logique aux trois blocs actuellement testés :
  *   - AD9833 : valeur utilisée comme fréquence en Hz
  *   - MCP45HV51 Gain : valeur utilisée comme wiper brut 0..255
+ *   - MCP45HV51 Offset : valeur utilisée comme wiper brut 0..255
  *
- * L'AD9833 est volontairement commandé avant le MCP afin que le chemin logiciel suive
- * l'ordre demandé : Encodeur/OLED -> AD9833 -> MCP Gain.
+ * Ce mode est volontairement un test d'intégration brut. Les deux EPOT suivent la même
+ * valeur tant que les conversions amplitude/offset physiques ne sont pas calibrées.
  */
 static esp_err_t ApplyLiveControlValue(int32_t value)
 {
@@ -383,6 +385,13 @@ static esp_err_t ApplyLiveControlValue(int32_t value)
     gAd9833CommandOk = true;
 
     err = Signaux_SetGainRaw((uint8_t)value);
+    if (err != ESP_OK)
+    {
+        gEpotCommunicationOk = false;
+        return err;
+    }
+
+    err = Signaux_SetOffsetRaw((uint8_t)value);
     if (err != ESP_OK)
     {
         gEpotCommunicationOk = false;
@@ -442,7 +451,7 @@ void app_main(void)
     InitEpot();
     InitAndTestAd9833();
 
-    /* Valeur commune de départ affichée et appliquée aux deux composants. */
+    /* Valeur commune de départ affichée et appliquée à toute la chaîne de test. */
     err = Encodeur_SetCounter(LIVE_CONTROL_INITIAL_VALUE);
     if (err != ESP_OK)
     {
@@ -472,10 +481,9 @@ void app_main(void)
     }
 
     printf("\nControle live actif.\n");
-    printf("Encodeur 0..255 -> OLED -> AD9833 (Hz) -> MCP Gain (raw).\n");
-    printf("Exemple : ecran 120 => AD9833 120 Hz et MCP Gain = 120/255.\n");
+    printf("Encodeur 0..255 -> OLED -> AD9833 (Hz) -> MCP Gain + MCP Offset (raw).\n");
+    printf("Exemple : ecran 120 => AD9833 120 Hz, Gain = 120/255, Offset = 120/255.\n");
     printf("Bouton SW : remise de la valeur a 0.\n");
-    printf("MCP Offset n'est pas modifie dans ce mode de test.\n");
     fflush(stdout);
 
     last_led_toggle_us = esp_timer_get_time();
@@ -536,7 +544,7 @@ void app_main(void)
 
         /*
          * Une modification de la valeur est appliquée d'abord au hardware :
-         * AD9833 puis MCP Gain. L'écran n'est rafraîchi qu'après succès afin que
+         * AD9833, MCP Gain puis MCP Offset. L'écran n'est rafraîchi qu'après succès afin que
          * la valeur affichée corresponde toujours à la dernière consigne réellement envoyée.
          */
         if (counter != last_applied_value)
@@ -545,9 +553,10 @@ void app_main(void)
             if (err == ESP_OK)
             {
                 last_applied_value = counter;
-                printf("Valeur appliquee : %ld -> AD9833 %.0f Hz -> MCP Gain %ld/255\n",
+                printf("Valeur appliquee : %ld -> AD9833 %.0f Hz -> Gain %ld/255 -> Offset %ld/255\n",
                        (long)counter,
                        (double)Ad9833_GetFrequencyHz(),
+                       (long)counter,
                        (long)counter);
             }
             else
@@ -590,7 +599,7 @@ void app_main(void)
         {
             heartbeat_count++;
 
-            printf("Heartbeat #%lu - valeur=%ld - AD9833=%.0fHz - EPOT=%s - OLED=%s\n",
+            printf("Heartbeat #%lu - valeur=%ld - AD9833=%.0fHz - EPOTs=%s - OLED=%s\n",
                    heartbeat_count,
                    (long)last_applied_value,
                    Ad9833_GetFrequencyHz(),
