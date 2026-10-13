@@ -1,25 +1,20 @@
-/*===============================================================================================
-CFPT - Projet : Générateur de fonction
-Fichier      : oled.h
-Description  : Gestion de l'écran OLED SH1106 128x64 I2C
-===============================================================================================*/
-
 #ifndef OLED_H
 #define OLED_H
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "esp_err.h"
-#include "driver/i2c_master.h"
+#define OLED_COLONNES_TEXTE 21
+#define OLED_LIGNES_TEXTE 8
 
-esp_err_t Oled_Init(i2c_master_bus_handle_t bus_handle);
-esp_err_t Oled_Deinit(void);
-esp_err_t Oled_Clear(void);
-esp_err_t Oled_TestPattern(void);
-esp_err_t Oled_ShowCounter(int32_t value);
-
-bool Oled_IsInitialized(void);
-uint8_t Oled_GetI2cAddress(void);
+bool oled_initialiser(void);
+bool oled_est_present(void);
+uint8_t oled_adresse(void);
+void oled_effacer(void);
+void oled_ligne(int numero, const char *texte, bool surligner);
+void oled_texte(int numero, int colonne, const char *texte);
+void oled_pixel(int x, int y);
+void oled_segment(int x0, int y0, int x1, int y1);
+void oled_actualiser(void);
 
 #endif /* OLED_H */
