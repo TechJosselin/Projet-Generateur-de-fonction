@@ -19,9 +19,10 @@
 }
 void menu_initialiser(void){
     page=PAGE_ACCUEIL;
-    c_accueil=c_signal=c_detail=c_sortie=c_memoire=c_usb=c_reglages=0;
+    c_accueil=c_signal=c_detail=c_sortie=c_memoire=c_usb=c_reglages=c_diag=0;
     pas_freq_idx=3;pas_ampl_idx=2;pas_offset_idx=2;
-    compteur_plus=compteur_moins=compteur_clic=0;
+    compteur_plus=compteur_moins=compteur_clic=compteur_long=0;
+    dernier_diag=0;
     redessiner=true;
 }
 static void valider_confirmation(void){
@@ -42,17 +43,17 @@ static void valider_confirmation(void){
     }else if(action==CONFIRMER_SAUVER){
         if(integration_eeprom_sauvegarder())
             message("EEPROM OK","PARAMETRES SAUVES","",PAGE_MEMOIRE);
-        else message("EEPROM INDISP.","AUCUNE ECRITURE","RAM CONSERVEE",PAGE_MEMOIRE);
+        else message("EEPROM INDISP.","DRIVER NON INTEGRE","RAM CONSERVEE",PAGE_MEMOIRE);
     }else if(action==CONFIRMER_CHARGER){
         if(integration_eeprom_charger()){
             integration_annuler_selection();
             c_signal=c_detail=0;
             message("EEPROM CHARGEE","VERIFIER PRESETS","",PAGE_MEMOIRE);
-        }else message("EEPROM INDISP.","AUCUNE LECTURE","RAM CONSERVEE",PAGE_MEMOIRE);
+        }else message("EEPROM INDISP.","DRIVER NON INTEGRE","RAM CONSERVEE",PAGE_MEMOIRE);
     }else if(action==CONFIRMER_VOUT_ON){
         if(integration_activer_sortie())
             message("VOUT ACTIVE","VERIFIER OSCILLO","",PAGE_SORTIE);
-        else message("VOUT NON DISPONIBLE","PILOTES A INTEGRER","SORTIE OFF",PAGE_SORTIE);
+        else message("VOUT BLOQUEE","CALIBRATION REQUISE","SORTIE OFF",PAGE_SORTIE);
     }
 }
 static void selection_detail(void){
@@ -93,7 +94,7 @@ static void valider(void){
         case 1:aller(PAGE_SORTIE);break;
         case 2:aller(PAGE_MEMOIRE);break;
         case 3:aller(PAGE_USB);break;
-        case 4:aller(PAGE_DIAGNOSTIC);break;
+        case 4:c_diag=0;aller(PAGE_DIAGNOSTIC);break;
         case 5:aller(PAGE_REGLAGES);break;
         default:aller(PAGE_INFOS);break;
         }break;
