@@ -14,19 +14,28 @@ static bool gSystemInitialized = false;
 
 static const char *I2cAddressDescription(uint8_t address)
 {
-    switch (address)
+    if (address == SYSTEM_OLED_I2C_ADDRESS_PRIMARY)
     {
-        case SYSTEM_OLED_I2C_ADDRESS_PRIMARY:   return "OLED SH1106 (primaire)";
-        case SYSTEM_OLED_I2C_ADDRESS_SECONDARY: return "OLED SH1106 (secondaire)";
-        case SYSTEM_EPOT_OFFSET_I2C_ADDRESS:    return "EPOT Offset MCP45HV51";
-        case SYSTEM_EPOT_GAIN_I2C_ADDRESS:      return "EPOT Gain MCP45HV51";
-        case 0x50U: return "EEPROM 24LC32 possible (A2=A1=A0=0)";
-        case 0x51U: case 0x52U: case 0x53U: case 0x54U:
-        case 0x55U: case 0x56U: case 0x57U:
-            return "EEPROM 24LC32 possible";
-        default:
-            return "peripherique I2C non identifie";
+        return "OLED SH1106 (primaire)";
     }
+    if (address == SYSTEM_OLED_I2C_ADDRESS_SECONDARY)
+    {
+        return "OLED SH1106 (secondaire)";
+    }
+    if (address == SYSTEM_EPOT_OFFSET_I2C_ADDRESS)
+    {
+        return "EPOT Offset MCP45HV51";
+    }
+    if (address == SYSTEM_EPOT_GAIN_I2C_ADDRESS)
+    {
+        return "EPOT Gain MCP45HV51";
+    }
+    if ((address >= SYSTEM_EEPROM_I2C_ADDRESS_MIN) &&
+        (address <= SYSTEM_EEPROM_I2C_ADDRESS_MAX))
+    {
+        return "EEPROM 24LC32 possible";
+    }
+    return "peripherique I2C non identifie";
 }
 
 esp_err_t System_Init(void)
@@ -56,8 +65,7 @@ i2c_master_bus_handle_t System_GetI2cBus(void)
 
 void System_ScanI2cBus(void)
 {
-    const i2c_master_bus_handle_t bus = i2c_commun_bus();
-    if (bus == NULL)
+    if (!i2c_commun_est_initialise())
     {
         printf("I2C: bus non initialise.\n");
         return;
@@ -66,7 +74,7 @@ void System_ScanI2cBus(void)
     printf("\n===== SCAN I2C =====\n");
     for (uint8_t address = 0x08U; address <= 0x77U; address++)
     {
-        if (i2c_master_probe(bus, address, 10) == ESP_OK)
+        if (i2c_commun_adresse_presente(address, SYSTEM_I2C_DIAG_PROBE_TIMEOUT_MS))
         {
             printf("0x%02X : %s\n", address, I2cAddressDescription(address));
         }
@@ -76,5 +84,5 @@ void System_ScanI2cBus(void)
 
 bool System_IsInitialized(void)
 {
-    return gSystemInitialized && (i2c_commun_bus() != NULL);
+    return gSystemInitialized && i2c_commun_est_initialise();
 }
