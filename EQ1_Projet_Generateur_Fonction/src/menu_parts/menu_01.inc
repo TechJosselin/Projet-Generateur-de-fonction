@@ -55,9 +55,9 @@ static void ligne_reglages(int i,char *dst,size_t n){snprintf(dst,n,"%s",reglage
 static void afficher_accueil(void){
     liste_scrollee("GENERATEUR / MENU",c_accueil,NB_ACCUEIL,ligne_accueil);
     char s[28];int index=integration_signal_selectionne();
-    const char *vout=integration_sortie_reelle_active()?"ON":"OFF";
-    if(index<0)snprintf(s,sizeof(s),"SIG: RIEN / VOUT %s",vout);
-    else snprintf(s,sizeof(s),"SIG: %02d / VOUT %s",index+1,vout);
+    const char *dds=integration_sortie_reelle_active()?"ON":"OFF";
+    if(index<0)snprintf(s,sizeof(s),"SIG: RIEN / DDS %s",dds);
+    else snprintf(s,sizeof(s),"SIG: %02d / DDS %s",index+1,dds);
     oled_ligne(1,s,false);
 }
 static void afficher_liste(void){
