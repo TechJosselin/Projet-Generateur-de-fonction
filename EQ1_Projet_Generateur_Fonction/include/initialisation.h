@@ -46,6 +46,13 @@ esp_err_t System_Deinit(void);
 i2c_master_bus_handle_t System_GetI2cBus(void);
 
 /**
+ * @brief Effectue un scan complet du bus I2C et affiche les adresses qui répondent.
+ *
+ * Le scan couvre les adresses 7 bits utilisables de 0x08 à 0x77.
+ */
+void System_ScanI2cBus(void);
+
+/**
  * @brief Indique si les ressources communes du système sont initialisées.
  */
 bool System_IsInitialized(void);
