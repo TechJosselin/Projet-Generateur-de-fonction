@@ -70,23 +70,20 @@ ENCODEUR ROTATIF PEC12R-4220F-S0024
  *   - SW       -> D0 / GPIO0
  *   - SW GND   -> GND
  *
- * Le driver utilise maintenant les interruptions sur A/B et le décodage
- * quadrature complet. Quatre transitions valides correspondent à un cran.
+ * Le driver utilise les interruptions sur A/B et le décodage quadrature complet.
+ * Sur le PEC12R du prototype, un cran mécanique produit deux cycles quadrature complets,
+ * soit 8 transitions valides. On accumule donc 8 transitions avant de générer un seul
+ * événement UI_ROTATION_PLUS / UI_ROTATION_MOINS.
  */
 #define SYSTEM_ENCODER_A_GPIO                   GPIO_NUM_1
 #define SYSTEM_ENCODER_B_GPIO                   GPIO_NUM_2
 #define SYSTEM_ENCODER_BUTTON_GPIO              GPIO_NUM_0
-#define SYSTEM_ENCODER_EDGES_PER_STEP           4U
+#define SYSTEM_ENCODER_EDGES_PER_STEP           8U
 #define SYSTEM_ENCODER_REVERSE_DIRECTION        0
-#define SYSTEM_ENCODER_POLL_PERIOD_MS           10U
 
 /*===============================================================================================
 GENERATEUR DDS AD9833
 ===============================================================================================*/
-/*
- * GPIO1 est réservé au canal A de l'encodeur.
- * L'intégration utilise donc GPIO21 pour FSYNC afin d'éviter le conflit.
- */
 #define SYSTEM_AD9833_SPI_HOST                  SPI2_HOST
 #define SYSTEM_AD9833_MOSI_GPIO                 GPIO_NUM_18
 #define SYSTEM_AD9833_SCLK_GPIO                 GPIO_NUM_19
@@ -98,13 +95,6 @@ GENERATEUR DDS AD9833
 /*===============================================================================================
 POTENTIOMETRES NUMERIQUES MCP45HV51
 ===============================================================================================*/
-/*
- * Adressage matériel actuellement câblé :
- *   - Gain   : A1 = 1, A0 = 1 -> 0x3F
- *   - Offset : A1 = 1, A0 = 0 -> 0x3E
- *
- * L'OLED peut ainsi utiliser 0x3C en primaire et 0x3D en secondaire sans collision I2C.
- */
 #define SYSTEM_EPOT_GAIN_I2C_ADDRESS            0x3FU
 #define SYSTEM_EPOT_OFFSET_I2C_ADDRESS          0x3EU
 
