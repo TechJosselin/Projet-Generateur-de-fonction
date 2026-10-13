@@ -70,15 +70,13 @@ ENCODEUR ROTATIF PEC12R-4220F-S0024
  *   - SW       -> D0 / GPIO0
  *   - SW GND   -> GND
  *
- * Le driver utilise les interruptions sur A/B et le décodage quadrature complet.
- * Sur le PEC12R du prototype, un cran mécanique produit deux cycles quadrature complets,
- * soit 8 transitions valides. On accumule donc 8 transitions avant de générer un seul
- * événement UI_ROTATION_PLUS / UI_ROTATION_MOINS.
+ * Le PEC12R-4220F-S0024 est un modèle 24 détentes / 24 impulsions.
+ * Le driver génère donc un seul événement UI sur le front montant de A,
+ * lit B pour connaître le sens et applique un anti-rebond logiciel.
  */
 #define SYSTEM_ENCODER_A_GPIO                   GPIO_NUM_1
 #define SYSTEM_ENCODER_B_GPIO                   GPIO_NUM_2
 #define SYSTEM_ENCODER_BUTTON_GPIO              GPIO_NUM_0
-#define SYSTEM_ENCODER_EDGES_PER_STEP           8U
 #define SYSTEM_ENCODER_REVERSE_DIRECTION        0
 
 /*===============================================================================================
