@@ -1,4 +1,4 @@
-/* Generateur de fonctions CFPT - integration interface V3.
+/* Generateur de fonctions CFPT - integration interface V4.
  * L'encodeur pilote uniquement le menu. La selection d'un preset prepare l'AD9833.
  * Les EPOT restent disponibles comme drivers mais ne sont pas commandes tant que
  * la conversion amplitude/offset n'est pas calibree.
@@ -35,7 +35,7 @@ static void initialiser_ad9833(void)
     }
 
     (void)Ad9833_EnableOutput(false);
-    printf("AD9833: driver initialise, sortie maintenue OFF.\n");
+    printf("AD9833: driver SPI initialise, sortie maintenue OFF.\n");
 }
 
 static void initialiser_epot(void)
@@ -52,9 +52,51 @@ static void initialiser_epot(void)
     printf("EPOT: drivers Gain/Offset enregistres, aucune consigne appliquee.\n");
 }
 
+static void afficher_diagnostic_demarrage(void)
+{
+    uint8_t eeprom_adresse = 0U;
+
+    printf("\n=== DIAGNOSTIC MATERIEL ===\n");
+    printf("I2C bus       : %s\n", integration_i2c_disponible() ? "OK" : "ABSENT");
+
+    if (oled_est_present())
+    {
+        printf("OLED SH1106   : OK @ 0x%02X\n", oled_adresse());
+    }
+    else
+    {
+        printf("OLED SH1106   : ABSENT\n");
+    }
+
+    printf("EPOT Gain     : %s @ 0x%02X\n",
+           integration_epot_gain_present() ? "ACK" : "ABSENT",
+           SYSTEM_EPOT_GAIN_I2C_ADDRESS);
+    printf("EPOT Offset   : %s @ 0x%02X\n",
+           integration_epot_offset_present() ? "ACK" : "ABSENT",
+           SYSTEM_EPOT_OFFSET_I2C_ADDRESS);
+
+    if (integration_eeprom_detectee(&eeprom_adresse))
+    {
+        printf("EEPROM 24LC32: ACK @ 0x%02X (driver sauvegarde non integre)\n",
+               eeprom_adresse);
+    }
+    else
+    {
+        printf("EEPROM 24LC32: ABSENTE sur 0x50..0x57\n");
+    }
+
+    printf("AD9833        : %s (SPI sans retour MISO)\n",
+           integration_ad9833_disponible() ? "DRIVER INIT" : "DRIVER ABSENT");
+    printf("Encodeur      : IRQ A/B actives, droite=bas, gauche=haut\n");
+    printf("USB RX/TX     : NON INTEGRE\n");
+    printf("VOUT          : OFF / activation bloquee avant calibration\n");
+    printf("LT1206/TRACO  : test manuel uniquement\n");
+    printf("============================\n\n");
+}
+
 void app_main(void)
 {
-    printf("\n=== GENERATEUR DE FONCTIONS - INTEGRATION UI ===\n");
+    printf("\n=== GENERATEUR DE FONCTIONS - INTEGRATION UI V4 ===\n");
 
     signaux_initialiser();
 
@@ -78,6 +120,7 @@ void app_main(void)
 
     initialiser_ad9833();
     integration_initialiser();
+    afficher_diagnostic_demarrage();
     menu_initialiser();
 
     while (1)
