@@ -1,6 +1,6 @@
 /* ===========================================================================
  * Interface OLED SH1106 - tous les menus du generateur de fonctions.
- * Uniquement edition en RAM. Le materiel non raccorde reste desactive.
+ * Edition des signaux en RAM et diagnostic temps reel du materiel raccorde.
  * Navigation: rotation, clic court, clic long (0.8 s).
  * =========================================================================== */
 #include "menu.h"
@@ -20,6 +20,7 @@
 #define NB_MEMOIRE 5
 #define NB_USB 4
 #define NB_REGLAGES 4
+#define NB_DIAG 4
 #define PAS_FREQ_N 8
 #define PAS_VOLT_N 4
 
@@ -61,14 +62,14 @@ static confirmer_t confirmation;
 static bool choix_oui;
 static bool redessiner;
 static int64_t message_jusque,dernier_diag;
-static int c_accueil,c_signal,c_detail,c_sortie,c_memoire,c_usb,c_reglages;
+static int c_accueil,c_signal,c_detail,c_sortie,c_memoire,c_usb,c_reglages,c_diag;
 static int pas_freq_idx=3,pas_ampl_idx=2,pas_offset_idx=2;
 static int pas_en_cours;
 static int champ_pas;   /* 0 freq; 1 amplitude; 2 offset */
 static signal_champ_t champ_edit;
 static signal_config_t brouillon;
 static char titre_message[28],ligne_message1[28],ligne_message2[28];
-static uint32_t compteur_plus,compteur_moins,compteur_clic;
+static uint32_t compteur_plus,compteur_moins,compteur_clic,compteur_long;
 
 static void aller(page_t nouvelle){page=nouvelle;redessiner=true;}
 static int borne(int v,int mini,int maxi){return v<mini?mini:(v>maxi?maxi:v);}
