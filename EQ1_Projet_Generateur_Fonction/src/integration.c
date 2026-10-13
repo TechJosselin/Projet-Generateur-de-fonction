@@ -2,6 +2,8 @@
 
 #include "ad9833.h"
 #include "epot.h"
+#include "hardware_config.h"
+#include "i2c_commun.h"
 
 static int selection = -1;
 
@@ -42,25 +44,117 @@ integration_selection_t integration_selectionner(size_t index, const signal_conf
     return INTEGRATION_SELECTION_DDS_PREPAREE;
 }
 
-int integration_signal_selectionne(void) { return selection; }
+int integration_signal_selectionne(void)
+{
+    return selection;
+}
 
 void integration_annuler_selection(void)
 {
     selection = -1;
-    if (Ad9833_IsInitialized()) (void)Ad9833_EnableOutput(false);
+    if (Ad9833_IsInitialized())
+    {
+        (void)Ad9833_EnableOutput(false);
+    }
 }
 
-bool integration_ad9833_disponible(void) { return Ad9833_IsInitialized(); }
-bool integration_epot_disponible(void) { return Epot_IsInitialized(); }
-bool integration_sortie_reelle_active(void) { return false; }
-bool integration_activer_sortie(void) { return false; }
-bool integration_couper_sortie(void)
+bool integration_i2c_disponible(void)
 {
-    if (Ad9833_IsInitialized()) return Ad9833_EnableOutput(false) == ESP_OK;
+    return i2c_commun_est_initialise();
+}
+
+bool integration_epot_gain_present(void)
+{
+    return i2c_commun_adresse_presente(SYSTEM_EPOT_GAIN_I2C_ADDRESS,
+                                       SYSTEM_I2C_DIAG_PROBE_TIMEOUT_MS);
+}
+
+bool integration_epot_offset_present(void)
+{
+    return i2c_commun_adresse_presente(SYSTEM_EPOT_OFFSET_I2C_ADDRESS,
+                                       SYSTEM_I2C_DIAG_PROBE_TIMEOUT_MS);
+}
+
+bool integration_eeprom_detectee(uint8_t *adresse)
+{
+    uint8_t detectee = 0U;
+
+    if (!i2c_commun_trouver_adresse(SYSTEM_EEPROM_I2C_ADDRESS_MIN,
+                                    SYSTEM_EEPROM_I2C_ADDRESS_MAX,
+                                    SYSTEM_I2C_DIAG_PROBE_TIMEOUT_MS,
+                                    &detectee))
+    {
+        if (adresse != NULL)
+        {
+            *adresse = 0U;
+        }
+        return false;
+    }
+
+    if (adresse != NULL)
+    {
+        *adresse = detectee;
+    }
     return true;
 }
-bool integration_memoire_disponible(void) { return false; }
-bool integration_eeprom_sauvegarder(void) { return false; }
-bool integration_eeprom_charger(void) { return false; }
-bool integration_usb_trames_disponible(void) { return false; }
-bool integration_sortie_digitale_disponible(unsigned canal) { (void)canal; return false; }
+
+bool integration_ad9833_disponible(void)
+{
+    /* AD9833 sans MISO : on peut valider le driver SPI, pas obtenir d'ACK matériel. */
+    return Ad9833_IsInitialized();
+}
+
+bool integration_epot_disponible(void)
+{
+    return Epot_IsInitialized() &&
+           integration_epot_gain_present() &&
+           integration_epot_offset_present();
+}
+
+bool integration_sortie_reelle_active(void)
+{
+    return Ad9833_IsInitialized() && Ad9833_IsOutputEnabled();
+}
+
+bool integration_activer_sortie(void)
+{
+    /* Bloqué tant que la conversion amplitude/offset et l'étage analogique ne sont pas calibrés. */
+    return false;
+}
+
+bool integration_couper_sortie(void)
+{
+    if (Ad9833_IsInitialized())
+    {
+        return Ad9833_EnableOutput(false) == ESP_OK;
+    }
+    return true;
+}
+
+bool integration_memoire_disponible(void)
+{
+    /* La présence physique peut être diagnostiquée, mais le driver 24LC32 n'est pas encore intégré. */
+    return false;
+}
+
+bool integration_eeprom_sauvegarder(void)
+{
+    return false;
+}
+
+bool integration_eeprom_charger(void)
+{
+    return false;
+}
+
+bool integration_usb_trames_disponible(void)
+{
+    /* Le parser existe, mais le transport USB RX/TX n'est pas encore raccordé. */
+    return false;
+}
+
+bool integration_sortie_digitale_disponible(unsigned canal)
+{
+    (void)canal;
+    return false;
+}
