@@ -38,6 +38,14 @@ integration_selection_t integration_selectionner(size_t index, const signal_conf
     if (!convertir_forme(config->forme, &waveform))
         return INTEGRATION_ECHEC;
 
+    /*
+     * Une nouvelle selection est toujours preparee avec le DDS coupe.
+     * Cela permet de changer de preset sans produire de transitoire en sortie.
+     * L'utilisateur reactive ensuite explicitement le DDS depuis le menu.
+     */
+    if (Ad9833_IsOutputEnabled() && (Ad9833_EnableOutput(false) != ESP_OK))
+        return INTEGRATION_ECHEC;
+
     if (Ad9833_SetSignal(waveform, (double)config->frequence_hz) != ESP_OK)
         return INTEGRATION_ECHEC;
 
@@ -108,8 +116,31 @@ bool integration_sortie_reelle_active(void)
 
 bool integration_activer_sortie(void)
 {
-    /* Bloqué tant que la conversion amplitude/offset et l'étage analogique ne sont pas calibrés. */
-    return false;
+    ad9833_waveform_t waveform;
+
+    if (!Ad9833_IsInitialized() || (selection < 0))
+        return false;
+
+    const signal_config_t *config = signaux_lire((size_t)selection);
+    if ((config == NULL) || !signaux_valide(*config))
+        return false;
+
+    if (!convertir_forme(config->forme, &waveform))
+        return false;
+
+    /*
+     * Reprogramme le preset actuellement selectionne juste avant l'activation.
+     * Ainsi, si ses valeurs RAM ont ete modifiees depuis la selection, le test
+     * oscilloscope utilise toujours la configuration la plus recente.
+     *
+     * Pour cette etape, seules forme + frequence sont appliquees a l'AD9833.
+     * Gain et offset restent volontairement NON commandes tant que l'etage
+     * analogique n'est pas calibre.
+     */
+    if (Ad9833_SetSignal(waveform, (double)config->frequence_hz) != ESP_OK)
+        return false;
+
+    return Ad9833_EnableOutput(true) == ESP_OK;
 }
 
 bool integration_couper_sortie(void)
