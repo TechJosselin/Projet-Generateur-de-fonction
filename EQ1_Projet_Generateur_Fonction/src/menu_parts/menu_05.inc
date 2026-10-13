@@ -1,3 +1,4 @@
+    case PAGE_LISTE:c_detail=0;aller(PAGE_DETAIL);break;
     case PAGE_DETAIL:selection_detail();break;
     case PAGE_EDITION:
         if(signaux_modifier((size_t)c_signal,brouillon))
