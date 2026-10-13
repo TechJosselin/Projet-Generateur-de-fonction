@@ -52,8 +52,11 @@ static void valider_confirmation(void){
         }else message("EEPROM INDISP.","DRIVER NON INTEGRE","RAM CONSERVEE",PAGE_MEMOIRE);
     }else if(action==CONFIRMER_VOUT_ON){
         if(integration_activer_sortie())
-            message("VOUT ACTIVE","VERIFIER OSCILLO","",PAGE_SORTIE);
-        else message("VOUT BLOQUEE","CALIBRATION REQUISE","SORTIE OFF",PAGE_SORTIE);
+            message("DDS ACTIVE","MESURER SORTIE AD9833","AMP/OFF NON APPLIQUES",PAGE_SORTIE);
+        else if(integration_signal_selectionne()<0)
+            message("DDS NON ACTIVE","CHOISIR UN SIGNAL","PUIS REESSAYER",PAGE_SORTIE);
+        else
+            message("DDS NON ACTIVE","VERIFIER AD9833","SORTIE RESTE OFF",PAGE_SORTIE);
     }
 }
 static void selection_detail(void){
@@ -61,7 +64,7 @@ static void selection_detail(void){
     case 0:{
         integration_selection_t r=integration_selectionner((size_t)c_signal,actuel());
         if(r==INTEGRATION_SELECTION_DDS_PREPAREE)
-            message("SIGNAL PREPARE","AD9833 CONFIGURE","VOUT RESTE OFF",PAGE_DETAIL);
+            message("SIGNAL PREPARE","AD9833 CONFIGURE","SORTIE DDS OFF",PAGE_DETAIL);
         else if(r==INTEGRATION_SELECTION_RAM)
             message("SIGNAL CHOISI","SELECTION EN RAM","AD9833 INDISP.",PAGE_DETAIL);
         else message("ERREUR SIGNAL","PARAMETRE INVALIDE","",PAGE_DETAIL);
@@ -98,4 +101,3 @@ static void valider(void){
         case 5:aller(PAGE_REGLAGES);break;
         default:aller(PAGE_INFOS);break;
         }break;
-    case PAGE_LISTE:c_detail=0;aller(PAGE_DETAIL);break;
