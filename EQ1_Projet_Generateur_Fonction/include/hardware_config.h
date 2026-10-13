@@ -46,7 +46,8 @@ ECRAN OLED SH1106 1.3\" I2C
  *   - pin 2 -> VDD
  * Ces straps ne sélectionnent pas l'adresse I2C.
  *
- * Le logiciel teste automatiquement les deux adresses usuelles du SH1106.
+ * L'écran utilisé sur le prototype doit rester à 0x3C car 0x3D est maintenant
+ * réservé au MCP45HV51 du canal Gain.
  */
 #define SYSTEM_OLED_I2C_ADDRESS_PRIMARY         0x3CU
 #define SYSTEM_OLED_I2C_ADDRESS_SECONDARY       0x3DU
@@ -96,11 +97,13 @@ GENERATEUR DDS AD9833
 POTENTIOMETRES NUMERIQUES MCP45HV51
 ===============================================================================================*/
 /*
- * Le MCP actuellement utilisé sur le banc a déjà été validé à l'adresse 0x3F.
- * Pour le test live, ce composant est donc le canal GAIN.
- * Le second MCP destiné à l'offset utilisera 0x3E lorsqu'il sera raccordé.
+ * Adressage matériel actuellement câblé :
+ *   - Gain   : A1 = 0, A0 = 1 -> 0x3D
+ *   - Offset : A1 = 1, A0 = 0 -> 0x3E
+ *
+ * L'OLED du prototype doit donc être à 0x3C afin d'éviter toute collision I2C.
  */
-#define SYSTEM_EPOT_GAIN_I2C_ADDRESS            0x3FU
+#define SYSTEM_EPOT_GAIN_I2C_ADDRESS            0x3DU
 #define SYSTEM_EPOT_OFFSET_I2C_ADDRESS          0x3EU
 
 #endif /* HARDWARE_CONFIG_H */
