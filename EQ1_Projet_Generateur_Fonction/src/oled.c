@@ -174,6 +174,8 @@ esp_err_t Oled_Init(i2c_master_bus_handle_t bus_handle)
 
     if (bus_handle == NULL)
     {
+        printf("OLED diagnostic : bus I2C NULL -> ECHEC\n");
+        fflush(stdout);
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -182,11 +184,21 @@ esp_err_t Oled_Init(i2c_master_bus_handle_t bus_handle)
         return ESP_OK;
     }
 
+    printf("OLED diagnostic : probe 0x%02X / 0x%02X...\n",
+           SYSTEM_OLED_I2C_ADDRESS_PRIMARY,
+           SYSTEM_OLED_I2C_ADDRESS_SECONDARY);
+
     err = Oled_DetectAddress(bus_handle, &detected_address);
     if (err != ESP_OK)
     {
+        printf("OLED diagnostic : probe -> ECHEC (%s)\n", esp_err_to_name(err));
+        fflush(stdout);
         return err;
     }
+
+    printf("OLED diagnostic : probe -> OK, adresse 0x%02X\n", detected_address);
+    printf("OLED diagnostic : creation interface I2C a %u Hz...\n",
+           (unsigned int)SYSTEM_OLED_I2C_SPEED_HZ);
 
     const esp_lcd_panel_io_i2c_config_t io_config =
     {
@@ -201,9 +213,12 @@ esp_err_t Oled_Init(i2c_master_bus_handle_t bus_handle)
     err = esp_lcd_new_panel_io_i2c(bus_handle, &io_config, &gOledIoHandle);
     if (err != ESP_OK)
     {
+        printf("OLED diagnostic : creation interface I2C -> ECHEC (%s)\n", esp_err_to_name(err));
         Oled_CleanupHandles();
+        fflush(stdout);
         return err;
     }
+    printf("OLED diagnostic : creation interface I2C -> OK\n");
 
     const esp_lcd_panel_dev_config_t panel_config =
     {
@@ -211,38 +226,70 @@ esp_err_t Oled_Init(i2c_master_bus_handle_t bus_handle)
         .bits_per_pixel = 1,
     };
 
+    printf("OLED diagnostic : creation panel SH1106...\n");
     err = esp_lcd_new_panel_sh1106(gOledIoHandle, &panel_config, &gOledPanelHandle);
     if (err != ESP_OK)
     {
+        printf("OLED diagnostic : creation panel SH1106 -> ECHEC (%s)\n", esp_err_to_name(err));
         Oled_CleanupHandles();
+        fflush(stdout);
         return err;
     }
+    printf("OLED diagnostic : creation panel SH1106 -> OK\n");
 
+    printf("OLED diagnostic : reset panel...\n");
     err = esp_lcd_panel_reset(gOledPanelHandle);
     if (err != ESP_OK)
     {
+        printf("OLED diagnostic : reset panel -> ECHEC (%s)\n", esp_err_to_name(err));
         Oled_CleanupHandles();
+        fflush(stdout);
         return err;
     }
+    printf("OLED diagnostic : reset panel -> OK\n");
 
+    printf("OLED diagnostic : initialisation SH1106...\n");
     err = esp_lcd_panel_init(gOledPanelHandle);
     if (err != ESP_OK)
     {
+        printf("OLED diagnostic : initialisation SH1106 -> ECHEC (%s)\n", esp_err_to_name(err));
         Oled_CleanupHandles();
+        fflush(stdout);
         return err;
     }
+    printf("OLED diagnostic : initialisation SH1106 -> OK\n");
 
+    printf("OLED diagnostic : activation affichage...\n");
     err = esp_lcd_panel_disp_on_off(gOledPanelHandle, true);
     if (err != ESP_OK)
     {
+        printf("OLED diagnostic : activation affichage -> ECHEC (%s)\n", esp_err_to_name(err));
         Oled_CleanupHandles();
+        fflush(stdout);
         return err;
     }
+    printf("OLED diagnostic : activation affichage -> OK\n");
 
     gOledI2cAddress = detected_address;
     gOledInitialized = true;
 
-    return Oled_Clear();
+    printf("OLED diagnostic : effacement framebuffer...\n");
+    err = Oled_Clear();
+    if (err != ESP_OK)
+    {
+        printf("OLED diagnostic : effacement framebuffer -> ECHEC (%s)\n", esp_err_to_name(err));
+        Oled_CleanupHandles();
+        fflush(stdout);
+        return err;
+    }
+
+    printf("OLED diagnostic : effacement framebuffer -> OK\n");
+    printf("OLED diagnostic : INITIALISATION COMPLETE A 0x%02X / %u Hz\n",
+           gOledI2cAddress,
+           (unsigned int)SYSTEM_OLED_I2C_SPEED_HZ);
+    fflush(stdout);
+
+    return ESP_OK;
 }
 
 esp_err_t Oled_Deinit(void)
