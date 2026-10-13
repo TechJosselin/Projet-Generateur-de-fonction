@@ -115,7 +115,6 @@ esp_err_t Ad9833_Init(const ad9833_config_t *config)
     }
     else if (err == ESP_ERR_INVALID_STATE)
     {
-        /* Le bus est déjà initialisé : on ajoute simplement l'AD9833. */
         gOwnsSpiBus = false;
     }
     else
@@ -211,6 +210,7 @@ esp_err_t Ad9833_SetSignal(ad9833_waveform_t waveform, double frequency_hz)
 {
     esp_err_t err;
     uint16_t waveform_bits;
+    const bool output_was_enabled = gOutputEnabled;
 
     if (!gInitialized || (gDeviceHandle == NULL) || (gMclkHz == 0U))
     {
@@ -235,6 +235,7 @@ esp_err_t Ad9833_SetSignal(ad9833_waveform_t waveform, double frequency_hz)
     const uint16_t frequency_lsb = (uint16_t)(frequency_word & 0x3FFFU);
     const uint16_t frequency_msb = (uint16_t)((frequency_word >> 14U) & 0x3FFFU);
 
+    /* Mise a jour sous RESET pour eviter une sortie transitoire pendant la programmation. */
     gControlRegister = AD9833_CTRL_B28 | AD9833_CTRL_RESET;
 
     err = Ad9833_WriteRegister(gControlRegister);
@@ -255,7 +256,13 @@ esp_err_t Ad9833_SetSignal(ad9833_waveform_t waveform, double frequency_hz)
         return err;
     }
 
+    /* Conserve l'etat ON/OFF existant : programmer un signal n'active pas la sortie. */
     gControlRegister = AD9833_CTRL_B28 | waveform_bits;
+    if (!output_was_enabled)
+    {
+        gControlRegister |= AD9833_CTRL_RESET;
+    }
+
     err = Ad9833_WriteRegister(gControlRegister);
     if (err != ESP_OK)
     {
@@ -264,7 +271,7 @@ esp_err_t Ad9833_SetSignal(ad9833_waveform_t waveform, double frequency_hz)
 
     gFrequencyHz = frequency_hz;
     gWaveform = waveform;
-    gOutputEnabled = true;
+    gOutputEnabled = output_was_enabled;
 
     return ESP_OK;
 }
