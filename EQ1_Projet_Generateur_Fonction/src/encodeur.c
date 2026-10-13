@@ -7,28 +7,37 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "esp_attr.h"
 #include "esp_err.h"
 #include "esp_timer.h"
 
+#define REBOND_BOUTON_US 30000LL
+#define APPUI_LONG_US    800000LL
+
 /*
- * PEC12R-4220F-S0024 : 24 detentes / 24 impulsions par tour.
- * Le constructeur annonce jusqu'a 5 ms de rebond de contact.
- * On genere donc UN evenement de rotation sur un seul front montant de A,
- * puis on ignore les fronts parasites pendant 6 ms.
+ * Decodeur quadrature robuste pour le PEC12R.
+ *
+ * Principe important : on ne genere PAS un evenement pendant le mouvement.
+ * Un cran n'est valide que lorsque l'encodeur a quitte sa position de detente,
+ * effectue une sequence quadrature complete, puis est revenu sur cette meme
+ * position de detente.
+ *
+ * Cela elimine les faux aller/retour provoques par le rebond mecanique autour
+ * d'un cran.
  */
-#define REBOND_ROTATION_US 6000LL
-#define REBOND_BOUTON_US   30000LL
-#define APPUI_LONG_US      800000LL
-
-typedef struct
+static const int8_t transitions[16] =
 {
-    int8_t sens;
-    int64_t instant_us;
-} rotation_isr_t;
+     0, +1, -1,  0,
+    -1,  0,  0, +1,
+    +1,  0,  0, -1,
+     0, -1, +1,  0
+};
 
-static QueueHandle_t queue_rotation;
+static QueueHandle_t queue_ab;
+static uint8_t ab_precedent;
+static uint8_t etat_detente;
+static int8_t quadrature_somme;
 static int rotation_en_attente;
-static int64_t derniere_rotation_acceptee_us;
 
 static bool bouton_brut_precedent;
 static bool bouton_stable;
@@ -36,21 +45,21 @@ static bool appui_long_declenche;
 static int64_t heure_rebond;
 static int64_t heure_appui;
 
-/*
- * Une seule interruption par impulsion : front montant de A.
- * B donne le sens de rotation au moment du front.
- */
-static void interruption_rotation(void *unused)
+static uint8_t lire_ab(void)
+{
+    return (uint8_t)((gpio_get_level(PIN_ENC_A) << 1) |
+                     gpio_get_level(PIN_ENC_B));
+}
+
+static void IRAM_ATTR interruption_ab(void *unused)
 {
     (void)unused;
 
-    rotation_isr_t evenement = {
-        .sens = gpio_get_level(PIN_ENC_B) ? +1 : -1,
-        .instant_us = esp_timer_get_time()
-    };
+    const uint8_t ab = (uint8_t)((gpio_get_level(PIN_ENC_A) << 1) |
+                                 gpio_get_level(PIN_ENC_B));
 
     BaseType_t reveil = pdFALSE;
-    xQueueSendFromISR(queue_rotation, &evenement, &reveil);
+    (void)xQueueSendFromISR(queue_ab, &ab, &reveil);
 
     if (reveil == pdTRUE)
     {
@@ -60,28 +69,20 @@ static void interruption_rotation(void *unused)
 
 void encodeur_initialiser(void)
 {
-    queue_rotation = xQueueCreate(32, sizeof(rotation_isr_t));
-    configASSERT(queue_rotation != NULL);
+    queue_ab = xQueueCreate(64, sizeof(uint8_t));
+    configASSERT(queue_ab != NULL);
 
-    /* Canal A : seul canal interruptif. */
-    const gpio_config_t canal_a = {
-        .pin_bit_mask = 1ULL << PIN_ENC_A,
+    const gpio_config_t rotation =
+    {
+        .pin_bit_mask = (1ULL << PIN_ENC_A) | (1ULL << PIN_ENC_B),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_POSEDGE
+        .intr_type = GPIO_INTR_ANYEDGE
     };
 
-    /* Canal B : lecture du sens uniquement. */
-    const gpio_config_t canal_b = {
-        .pin_bit_mask = 1ULL << PIN_ENC_B,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE
-    };
-
-    const gpio_config_t clic = {
+    const gpio_config_t clic =
+    {
         .pin_bit_mask = 1ULL << PIN_ENC_SW,
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
@@ -89,12 +90,18 @@ void encodeur_initialiser(void)
         .intr_type = GPIO_INTR_DISABLE
     };
 
-    ESP_ERROR_CHECK(gpio_config(&canal_a));
-    ESP_ERROR_CHECK(gpio_config(&canal_b));
+    ESP_ERROR_CHECK(gpio_config(&rotation));
     ESP_ERROR_CHECK(gpio_config(&clic));
 
+    /*
+     * Au demarrage l'encodeur est normalement pose sur un cran.
+     * On prend donc son etat A/B courant comme position de detente de reference.
+     * Cette methode fonctionne que la detente electrique soit 00 ou 11.
+     */
+    etat_detente = lire_ab();
+    ab_precedent = etat_detente;
+    quadrature_somme = 0;
     rotation_en_attente = 0;
-    derniere_rotation_acceptee_us = esp_timer_get_time() - REBOND_ROTATION_US;
 
     bouton_brut_precedent = (gpio_get_level(PIN_ENC_SW) == 0);
     bouton_stable = bouton_brut_precedent;
@@ -108,56 +115,84 @@ void encodeur_initialiser(void)
         ESP_ERROR_CHECK(isr_err);
     }
 
-    ESP_ERROR_CHECK(gpio_isr_handler_add(PIN_ENC_A, interruption_rotation, NULL));
+    ESP_ERROR_CHECK(gpio_isr_handler_add(PIN_ENC_A, interruption_ab, NULL));
+    ESP_ERROR_CHECK(gpio_isr_handler_add(PIN_ENC_B, interruption_ab, NULL));
 }
 
-static void traiter_rotation_en_attente(void)
+static void traiter_transition(uint8_t ab)
 {
-    rotation_isr_t evenement;
+    if (ab == ab_precedent)
+    {
+        return;
+    }
 
-    while (xQueueReceive(queue_rotation, &evenement, 0) == pdTRUE)
+    const int8_t pas = transitions[(ab_precedent << 2) | ab];
+
+    if (pas == 0)
     {
         /*
-         * Le PEC12R est un encodeur mecanique. Un meme cran peut produire plusieurs
-         * fronts a cause du rebond des contacts. Seul le premier front dans la fenetre
-         * de 6 ms est considere comme une vraie impulsion.
+         * Deux bits ont change d'un coup : sequence invalide ou fronts perdus.
+         * On annule le mouvement en cours plutot que de risquer un faux cran.
          */
-        if ((evenement.instant_us - derniere_rotation_acceptee_us) < REBOND_ROTATION_US)
+        quadrature_somme = 0;
+    }
+    else
+    {
+        quadrature_somme = (int8_t)(quadrature_somme + pas);
+    }
+
+    ab_precedent = ab;
+
+    /*
+     * Un evenement UI n'est emis qu'au RETOUR sur la position de detente.
+     * Une sequence complete vaut +/-4 transitions valides.
+     * Les rebonds partiels autour du cran reviennent avec une somme proche de 0
+     * et ne provoquent donc aucun deplacement du menu.
+     */
+    if (ab == etat_detente)
+    {
+        if (quadrature_somme >= 4)
         {
-            continue;
+#if INVERSION_SENS_ENCODEUR
+            rotation_en_attente--;
+#else
+            rotation_en_attente++;
+#endif
+        }
+        else if (quadrature_somme <= -4)
+        {
+#if INVERSION_SENS_ENCODEUR
+            rotation_en_attente++;
+#else
+            rotation_en_attente--;
+#endif
         }
 
-        derniere_rotation_acceptee_us = evenement.instant_us;
+        quadrature_somme = 0;
+    }
+}
 
-        int sens = evenement.sens;
-#if INVERSION_SENS_ENCODEUR
-        sens = -sens;
-#endif
-        rotation_en_attente += sens;
+static void traiter_file_rotation(TickType_t attente)
+{
+    uint8_t ab;
+
+    if (xQueueReceive(queue_ab, &ab, attente) != pdTRUE)
+    {
+        return;
+    }
+
+    traiter_transition(ab);
+
+    while (xQueueReceive(queue_ab, &ab, 0) == pdTRUE)
+    {
+        traiter_transition(ab);
     }
 }
 
 evenement_ui_t encodeur_lire_evenement(void)
 {
-    /*
-     * Attente courte pour eviter une boucle CPU a 100 %, puis vidage de toutes
-     * les interruptions de rotation recues depuis le dernier passage.
-     */
-    rotation_isr_t premier;
-    if (xQueueReceive(queue_rotation, &premier, pdMS_TO_TICKS(10)) == pdTRUE)
-    {
-        if ((premier.instant_us - derniere_rotation_acceptee_us) >= REBOND_ROTATION_US)
-        {
-            derniere_rotation_acceptee_us = premier.instant_us;
-            int sens = premier.sens;
-#if INVERSION_SENS_ENCODEUR
-            sens = -sens;
-#endif
-            rotation_en_attente += sens;
-        }
-
-        traiter_rotation_en_attente();
-    }
+    /* Attente courte pour eviter une boucle CPU a 100 %. */
+    traiter_file_rotation(pdMS_TO_TICKS(10));
 
     const bool brut = (gpio_get_level(PIN_ENC_SW) == 0);
     const int64_t maintenant = esp_timer_get_time();
