@@ -198,8 +198,11 @@ static void PrintSystemStatus(esp_reset_reason_t reset_reason, unsigned long hea
         printf("non commande\n");
     }
 
-    printf("========================================\n\n");
+    printf("========================================\n");
     fflush(stdout);
+
+    /* Le scan est répété à chaque affichage de l'état système pour faciliter le diagnostic. */
+    System_ScanI2cBus();
 }
 
 static void FatalBlinkLoop(const char *message, esp_err_t error)
