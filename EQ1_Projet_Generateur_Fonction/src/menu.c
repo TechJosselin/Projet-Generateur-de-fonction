@@ -1,0 +1,6 @@
+#include "menu_parts/menu_00.inc"
+#include "menu_parts/menu_01.inc"
+#include "menu_parts/menu_02.inc"
+#include "menu_parts/menu_03.inc"
+#include "menu_parts/menu_04.inc"
+#include "menu_parts/menu_05.inc"
