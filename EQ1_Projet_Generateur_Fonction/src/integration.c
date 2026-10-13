@@ -77,25 +77,15 @@ bool integration_epot_offset_present(void)
 
 bool integration_eeprom_detectee(uint8_t *adresse)
 {
-    uint8_t detectee = 0U;
-
-    if (!i2c_commun_trouver_adresse(SYSTEM_EEPROM_I2C_ADDRESS_MIN,
-                                    SYSTEM_EEPROM_I2C_ADDRESS_MAX,
-                                    SYSTEM_I2C_DIAG_PROBE_TIMEOUT_MS,
-                                    &detectee))
-    {
-        if (adresse != NULL)
-        {
-            *adresse = 0U;
-        }
-        return false;
-    }
+    const bool presente = i2c_commun_adresse_presente(SYSTEM_EEPROM_I2C_ADDRESS,
+                                                       SYSTEM_I2C_DIAG_PROBE_TIMEOUT_MS);
 
     if (adresse != NULL)
     {
-        *adresse = detectee;
+        *adresse = presente ? SYSTEM_EEPROM_I2C_ADDRESS : 0U;
     }
-    return true;
+
+    return presente;
 }
 
 bool integration_ad9833_disponible(void)
