@@ -4,6 +4,7 @@
 #include "signaux.h"
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 typedef enum
 {
@@ -16,6 +17,11 @@ void integration_initialiser(void);
 integration_selection_t integration_selectionner(size_t index, const signal_config_t *config);
 int integration_signal_selectionne(void);
 void integration_annuler_selection(void);
+
+bool integration_i2c_disponible(void);
+bool integration_epot_gain_present(void);
+bool integration_epot_offset_present(void);
+bool integration_eeprom_detectee(uint8_t *adresse);
 
 bool integration_ad9833_disponible(void);
 bool integration_epot_disponible(void);
