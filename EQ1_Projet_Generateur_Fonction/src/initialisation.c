@@ -22,7 +22,6 @@ static bool gSystemInitialized = false;
 PROTOTYPES DE FONCTIONS LOCALES
 ===============================================================================================*/
 static esp_err_t InitI2cBus(void);
-static void ScanI2cBus(void);
 static const char *I2cAddressDescription(uint8_t address);
 
 /*===============================================================================================
@@ -81,52 +80,6 @@ static const char *I2cAddressDescription(uint8_t address)
     }
 }
 
-static void ScanI2cBus(void)
-{
-    uint16_t detected_count = 0U;
-
-    if (gI2cBusHandle == NULL)
-    {
-        printf("\n===== SCAN I2C =====\n");
-        printf("Impossible : bus I2C non initialise.\n");
-        printf("====================\n\n");
-        fflush(stdout);
-        return;
-    }
-
-    printf("\n===== SCAN I2C COMPLET =====\n");
-    printf("SDA = GPIO%d / SCL = GPIO%d\n",
-           (int)SYSTEM_I2C_SDA_GPIO,
-           (int)SYSTEM_I2C_SCL_GPIO);
-    printf("Recherche des adresses 7 bits 0x08..0x77...\n");
-
-    for (uint8_t address = 0x08U; address <= 0x77U; address++)
-    {
-        const esp_err_t err = i2c_master_probe(gI2cBusHandle, address, 20);
-
-        if (err == ESP_OK)
-        {
-            detected_count++;
-            printf("  0x%02X : DETECTE -> %s\n",
-                   address,
-                   I2cAddressDescription(address));
-        }
-    }
-
-    if (detected_count == 0U)
-    {
-        printf("Aucun peripherique I2C detecte.\n");
-    }
-    else
-    {
-        printf("Total : %u peripherique(s) detecte(s).\n", detected_count);
-    }
-
-    printf("Attendu actuellement : OLED=0x3C/0x3D, Offset=0x3E, Gain=0x3F, EEPROM=0x50 si A0/A1/A2=0.\n");
-    printf("=============================\n\n");
-    fflush(stdout);
-}
-
 /*===============================================================================================
 FONCTIONS PUBLIQUES
 ===============================================================================================*/
@@ -145,11 +98,8 @@ esp_err_t System_Init(void)
         return err;
     }
 
-    /*
-     * Diagnostic temporaire : on scanne le bus avant l'initialisation des drivers
-     * OLED/EPOT afin de voir exactement quels composants répondent physiquement.
-     */
-    ScanI2cBus();
+    /* Premier diagnostic immédiatement après la création du bus. */
+    System_ScanI2cBus();
 
     gSystemInitialized = true;
     return ESP_OK;
@@ -182,6 +132,52 @@ esp_err_t System_Deinit(void)
 i2c_master_bus_handle_t System_GetI2cBus(void)
 {
     return gI2cBusHandle;
+}
+
+void System_ScanI2cBus(void)
+{
+    uint16_t detected_count = 0U;
+
+    if (gI2cBusHandle == NULL)
+    {
+        printf("\n===== SCAN I2C =====\n");
+        printf("Impossible : bus I2C non initialise.\n");
+        printf("====================\n\n");
+        fflush(stdout);
+        return;
+    }
+
+    printf("\n===== SCAN I2C COMPLET =====\n");
+    printf("SDA = GPIO%d / SCL = GPIO%d\n",
+           (int)SYSTEM_I2C_SDA_GPIO,
+           (int)SYSTEM_I2C_SCL_GPIO);
+    printf("Recherche des adresses 7 bits 0x08..0x77...\n");
+
+    for (uint8_t address = 0x08U; address <= 0x77U; address++)
+    {
+        const esp_err_t err = i2c_master_probe(gI2cBusHandle, address, 10);
+
+        if (err == ESP_OK)
+        {
+            detected_count++;
+            printf("  0x%02X : DETECTE -> %s\n",
+                   address,
+                   I2cAddressDescription(address));
+        }
+    }
+
+    if (detected_count == 0U)
+    {
+        printf("Aucun peripherique I2C detecte.\n");
+    }
+    else
+    {
+        printf("Total : %u peripherique(s) detecte(s).\n", detected_count);
+    }
+
+    printf("Attendu actuellement : OLED=0x3C/0x3D, Offset=0x3E, Gain=0x3F, EEPROM=0x50 si A0/A1/A2=0.\n");
+    printf("=============================\n\n");
+    fflush(stdout);
 }
 
 bool System_IsInitialized(void)
