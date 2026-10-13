@@ -30,13 +30,17 @@ BUS I2C PARTAGE
  *   - EEPROM 24LC32
  *   - EPOT Gain MCP45HV51
  *   - EPOT Offset MCP45HV51
+ *
+ * IMPORTANT : le timeout de diagnostic doit rester nettement supérieur à un tick FreeRTOS.
+ * Avec certaines configurations ESP-IDF, 5 ms peut être converti en 0 tick et provoquer des
+ * faux "ABS" lors des i2c_master_probe(). On utilise donc 50 ms, comme pour l'OLED.
  */
 #define SYSTEM_I2C_PORT                         I2C_NUM_0
 #define SYSTEM_I2C_SDA_GPIO                     GPIO_NUM_22
 #define SYSTEM_I2C_SCL_GPIO                     GPIO_NUM_23
 #define SYSTEM_I2C_GLITCH_IGNORE_COUNT          7U
 #define SYSTEM_I2C_ENABLE_INTERNAL_PULLUPS      1
-#define SYSTEM_I2C_DIAG_PROBE_TIMEOUT_MS        5
+#define SYSTEM_I2C_DIAG_PROBE_TIMEOUT_MS        50
 
 /*===============================================================================================
 ECRAN OLED SH1106 1.3\" I2C
@@ -52,11 +56,15 @@ ECRAN OLED SH1106 1.3\" I2C
 EEPROM 24LC32
 ===============================================================================================*/
 /*
- * L'adresse 7 bits dépend des entrées matérielles A0/A1/A2.
- * Le diagnostic recherche donc automatiquement l'EEPROM dans toute la plage 0x50..0x57.
- * Le driver de sauvegarde/chargement n'est pas encore intégré : cette plage sert uniquement
- * à vérifier la présence physique de la mémoire sur le bus I2C.
+ * Câblage retenu sur le prototype :
+ *   A2 = 0 V
+ *   A1 = 0 V
+ *   A0 = 0 V
+ *
+ * Adresse I2C 7 bits : 1010 A2 A1 A0 = 0b1010000 = 0x50.
+ * La plage 0x50..0x57 est conservée uniquement pour les futurs outils de scan.
  */
+#define SYSTEM_EEPROM_I2C_ADDRESS                0x50U
 #define SYSTEM_EEPROM_I2C_ADDRESS_MIN            0x50U
 #define SYSTEM_EEPROM_I2C_ADDRESS_MAX            0x57U
 
@@ -95,6 +103,11 @@ GENERATEUR DDS AD9833
 /*===============================================================================================
 POTENTIOMETRES NUMERIQUES MCP45HV51
 ===============================================================================================*/
+/*
+ * MCP45HV51 : adresse 7 bits = 0b01111 A1 A0.
+ * Gain   : A1=1, A0=1 -> 0x3F
+ * Offset : A1=1, A0=0 -> 0x3E
+ */
 #define SYSTEM_EPOT_GAIN_I2C_ADDRESS            0x3FU
 #define SYSTEM_EPOT_OFFSET_I2C_ADDRESS          0x3EU
 
