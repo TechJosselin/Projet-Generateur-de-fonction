@@ -49,10 +49,14 @@ ECRAN OLED SH1106 1.3\" I2C
  * L'écran utilisé sur le prototype est normalement à 0x3C.
  * 0x3D est de nouveau disponible comme adresse secondaire de détection,
  * car le MCP45HV51 du canal Gain est maintenant câblé à 0x3F.
+ *
+ * L'OLED est volontairement limité à 100 kHz pendant le diagnostic du bus partagé.
+ * Cette vitesse est suffisante pour l'affichage 128x64 et améliore la marge I2C
+ * lorsque plusieurs périphériques sont raccordés sur SDA/SCL.
  */
 #define SYSTEM_OLED_I2C_ADDRESS_PRIMARY         0x3CU
 #define SYSTEM_OLED_I2C_ADDRESS_SECONDARY       0x3DU
-#define SYSTEM_OLED_I2C_SPEED_HZ                400000U
+#define SYSTEM_OLED_I2C_SPEED_HZ                100000U
 #define SYSTEM_OLED_WIDTH                       128U
 #define SYSTEM_OLED_HEIGHT                      64U
 #define SYSTEM_OLED_PROBE_TIMEOUT_MS            50U
