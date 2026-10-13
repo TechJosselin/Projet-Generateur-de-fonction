@@ -139,6 +139,23 @@ esp_err_t Epot_Init(i2c_master_bus_handle_t bus_handle,
     Epot_ResetDevice(&gDevices[EPOT_CHANNEL_GAIN]);
     Epot_ResetDevice(&gDevices[EPOT_CHANNEL_OFFSET]);
 
+    /*
+     * i2c_master_bus_add_device() ne vérifie pas la présence physique du composant.
+     * On force donc un vrai probe avant de créer les handles. Ainsi Epot_IsInitialized()
+     * signifie réellement que les deux MCP45HV51 ont répondu sur le bus.
+     */
+    err = i2c_master_probe(bus_handle, gain_address, EPOT_I2C_TIMEOUT_MS);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+
+    err = i2c_master_probe(bus_handle, offset_address, EPOT_I2C_TIMEOUT_MS);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+
     err = Epot_AddDevice(bus_handle,
                          gain_address,
                          &gDevices[EPOT_CHANNEL_GAIN].handle);
