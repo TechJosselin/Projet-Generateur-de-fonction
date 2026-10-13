@@ -7,34 +7,51 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
-#include "esp_attr.h"
 #include "esp_err.h"
 #include "esp_timer.h"
 
-#define REBOND_BOUTON_US 30000LL
-#define APPUI_LONG_US    800000LL
+/*
+ * PEC12R-4220F-S0024 : 24 detentes / 24 impulsions par tour.
+ * Le constructeur annonce jusqu'a 5 ms de rebond de contact.
+ * On genere donc UN evenement de rotation sur un seul front montant de A,
+ * puis on ignore les fronts parasites pendant 6 ms.
+ */
+#define REBOND_ROTATION_US 6000LL
+#define REBOND_BOUTON_US   30000LL
+#define APPUI_LONG_US      800000LL
 
-static QueueHandle_t queue_ab;
-static uint8_t ab_precedent;
-static int8_t quadrature_somme;
+typedef struct
+{
+    int8_t sens;
+    int64_t instant_us;
+} rotation_isr_t;
+
+static QueueHandle_t queue_rotation;
 static int rotation_en_attente;
+static int64_t derniere_rotation_acceptee_us;
+
 static bool bouton_brut_precedent;
 static bool bouton_stable;
 static bool appui_long_declenche;
 static int64_t heure_rebond;
 static int64_t heure_appui;
 
-static const int8_t transitions[16] = {
-    0,+1,-1,0, -1,0,0,+1, +1,0,0,-1, 0,-1,+1,0
-};
-
-static void IRAM_ATTR interruption_ab(void *unused)
+/*
+ * Une seule interruption par impulsion : front montant de A.
+ * B donne le sens de rotation au moment du front.
+ */
+static void interruption_rotation(void *unused)
 {
     (void)unused;
-    const uint8_t ab = (uint8_t)((gpio_get_level(PIN_ENC_A) << 1) |
-                                 gpio_get_level(PIN_ENC_B));
+
+    rotation_isr_t evenement = {
+        .sens = gpio_get_level(PIN_ENC_B) ? +1 : -1,
+        .instant_us = esp_timer_get_time()
+    };
+
     BaseType_t reveil = pdFALSE;
-    xQueueSendFromISR(queue_ab, &ab, &reveil);
+    xQueueSendFromISR(queue_rotation, &evenement, &reveil);
+
     if (reveil == pdTRUE)
     {
         portYIELD_FROM_ISR();
@@ -43,15 +60,25 @@ static void IRAM_ATTR interruption_ab(void *unused)
 
 void encodeur_initialiser(void)
 {
-    queue_ab = xQueueCreate(64, sizeof(uint8_t));
-    configASSERT(queue_ab != NULL);
+    queue_rotation = xQueueCreate(32, sizeof(rotation_isr_t));
+    configASSERT(queue_rotation != NULL);
 
-    const gpio_config_t rot = {
-        .pin_bit_mask = (1ULL << PIN_ENC_A) | (1ULL << PIN_ENC_B),
+    /* Canal A : seul canal interruptif. */
+    const gpio_config_t canal_a = {
+        .pin_bit_mask = 1ULL << PIN_ENC_A,
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_ANYEDGE
+        .intr_type = GPIO_INTR_POSEDGE
+    };
+
+    /* Canal B : lecture du sens uniquement. */
+    const gpio_config_t canal_b = {
+        .pin_bit_mask = 1ULL << PIN_ENC_B,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE
     };
 
     const gpio_config_t clic = {
@@ -62,13 +89,12 @@ void encodeur_initialiser(void)
         .intr_type = GPIO_INTR_DISABLE
     };
 
-    ESP_ERROR_CHECK(gpio_config(&rot));
+    ESP_ERROR_CHECK(gpio_config(&canal_a));
+    ESP_ERROR_CHECK(gpio_config(&canal_b));
     ESP_ERROR_CHECK(gpio_config(&clic));
 
-    ab_precedent = (uint8_t)((gpio_get_level(PIN_ENC_A) << 1) |
-                             gpio_get_level(PIN_ENC_B));
-    quadrature_somme = 0;
     rotation_en_attente = 0;
+    derniere_rotation_acceptee_us = esp_timer_get_time() - REBOND_ROTATION_US;
 
     bouton_brut_precedent = (gpio_get_level(PIN_ENC_SW) == 0);
     bouton_stable = bouton_brut_precedent;
@@ -82,52 +108,55 @@ void encodeur_initialiser(void)
         ESP_ERROR_CHECK(isr_err);
     }
 
-    ESP_ERROR_CHECK(gpio_isr_handler_add(PIN_ENC_A, interruption_ab, NULL));
-    ESP_ERROR_CHECK(gpio_isr_handler_add(PIN_ENC_B, interruption_ab, NULL));
+    ESP_ERROR_CHECK(gpio_isr_handler_add(PIN_ENC_A, interruption_rotation, NULL));
 }
 
-static void traiter_transition(uint8_t ab)
+static void traiter_rotation_en_attente(void)
 {
-    if (ab == ab_precedent)
-    {
-        return;
-    }
+    rotation_isr_t evenement;
 
-    const int pas = transitions[(ab_precedent << 2) | ab];
-    if (pas == 0)
+    while (xQueueReceive(queue_rotation, &evenement, 0) == pdTRUE)
     {
-        quadrature_somme = 0;
-    }
-    else
-    {
-        quadrature_somme += pas;
-    }
+        /*
+         * Le PEC12R est un encodeur mecanique. Un meme cran peut produire plusieurs
+         * fronts a cause du rebond des contacts. Seul le premier front dans la fenetre
+         * de 6 ms est considere comme une vraie impulsion.
+         */
+        if ((evenement.instant_us - derniere_rotation_acceptee_us) < REBOND_ROTATION_US)
+        {
+            continue;
+        }
 
-    ab_precedent = ab;
+        derniere_rotation_acceptee_us = evenement.instant_us;
 
-    if (quadrature_somme >= TRANSITIONS_PAR_CRAN)
-    {
-        quadrature_somme = 0;
-        rotation_en_attente++;
-    }
-    else if (quadrature_somme <= -TRANSITIONS_PAR_CRAN)
-    {
-        quadrature_somme = 0;
-        rotation_en_attente--;
+        int sens = evenement.sens;
+#if INVERSION_SENS_ENCODEUR
+        sens = -sens;
+#endif
+        rotation_en_attente += sens;
     }
 }
 
 evenement_ui_t encodeur_lire_evenement(void)
 {
-    uint8_t ab;
-
-    if (xQueueReceive(queue_ab, &ab, pdMS_TO_TICKS(10)) == pdTRUE)
+    /*
+     * Attente courte pour eviter une boucle CPU a 100 %, puis vidage de toutes
+     * les interruptions de rotation recues depuis le dernier passage.
+     */
+    rotation_isr_t premier;
+    if (xQueueReceive(queue_rotation, &premier, pdMS_TO_TICKS(10)) == pdTRUE)
     {
-        traiter_transition(ab);
-        while (xQueueReceive(queue_ab, &ab, 0) == pdTRUE)
+        if ((premier.instant_us - derniere_rotation_acceptee_us) >= REBOND_ROTATION_US)
         {
-            traiter_transition(ab);
+            derniere_rotation_acceptee_us = premier.instant_us;
+            int sens = premier.sens;
+#if INVERSION_SENS_ENCODEUR
+            sens = -sens;
+#endif
+            rotation_en_attente += sens;
         }
+
+        traiter_rotation_en_attente();
     }
 
     const bool brut = (gpio_get_level(PIN_ENC_SW) == 0);
@@ -143,6 +172,7 @@ evenement_ui_t encodeur_lire_evenement(void)
         ((maintenant - heure_rebond) >= REBOND_BOUTON_US))
     {
         bouton_stable = brut;
+
         if (bouton_stable)
         {
             heure_appui = maintenant;
@@ -163,12 +193,9 @@ evenement_ui_t encodeur_lire_evenement(void)
 
     if (rotation_en_attente != 0)
     {
-        int sens = rotation_en_attente > 0 ? +1 : -1;
+        const int sens = (rotation_en_attente > 0) ? +1 : -1;
         rotation_en_attente -= sens;
-#if INVERSION_SENS_ENCODEUR
-        sens = -sens;
-#endif
-        return sens > 0 ? UI_ROTATION_PLUS : UI_ROTATION_MOINS;
+        return (sens > 0) ? UI_ROTATION_PLUS : UI_ROTATION_MOINS;
     }
 
     return UI_AUCUN;
