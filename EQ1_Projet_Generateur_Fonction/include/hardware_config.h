@@ -36,28 +36,29 @@ BUS I2C PARTAGE
 #define SYSTEM_I2C_SCL_GPIO                     GPIO_NUM_23
 #define SYSTEM_I2C_GLITCH_IGNORE_COUNT          7U
 #define SYSTEM_I2C_ENABLE_INTERNAL_PULLUPS      1
+#define SYSTEM_I2C_DIAG_PROBE_TIMEOUT_MS        5
 
 /*===============================================================================================
 ECRAN OLED SH1106 1.3\" I2C
 ===============================================================================================*/
-/*
- * Le module photographié possède des straps pour le brochage d'alimentation :
- *   - pin 1 -> GND
- *   - pin 2 -> VDD
- * Ces straps ne sélectionnent pas l'adresse I2C.
- *
- * L'écran utilisé sur le prototype est normalement à 0x3C.
- * 0x3D est disponible comme adresse secondaire de détection,
- * car le MCP45HV51 du canal Gain est câblé à 0x3F.
- *
- * L'OLED reste à 100 kHz pour le bus partagé pendant l'intégration.
- */
 #define SYSTEM_OLED_I2C_ADDRESS_PRIMARY         0x3CU
 #define SYSTEM_OLED_I2C_ADDRESS_SECONDARY       0x3DU
 #define SYSTEM_OLED_I2C_SPEED_HZ                100000U
 #define SYSTEM_OLED_WIDTH                       128U
 #define SYSTEM_OLED_HEIGHT                      64U
 #define SYSTEM_OLED_PROBE_TIMEOUT_MS            50U
+
+/*===============================================================================================
+EEPROM 24LC32
+===============================================================================================*/
+/*
+ * L'adresse 7 bits dépend des entrées matérielles A0/A1/A2.
+ * Le diagnostic recherche donc automatiquement l'EEPROM dans toute la plage 0x50..0x57.
+ * Le driver de sauvegarde/chargement n'est pas encore intégré : cette plage sert uniquement
+ * à vérifier la présence physique de la mémoire sur le bus I2C.
+ */
+#define SYSTEM_EEPROM_I2C_ADDRESS_MIN            0x50U
+#define SYSTEM_EEPROM_I2C_ADDRESS_MAX            0x57U
 
 /*===============================================================================================
 ENCODEUR ROTATIF PEC12R-4220F-S0024
@@ -70,9 +71,10 @@ ENCODEUR ROTATIF PEC12R-4220F-S0024
  *   - SW       -> D0 / GPIO0
  *   - SW GND   -> GND
  *
- * Sens voulu dans le menu :
- *   - rotation à droite  -> descendre
- *   - rotation à gauche  -> remonter
+ * Le driver utilise des interruptions sur A et B (tous les fronts) et un décodeur
+ * quadrature complet. Un déplacement n'est validé qu'au retour sur une position
+ * de détente après une séquence complète, ce qui filtre les rebonds mécaniques.
+ * Le sens logique est inversé pour obtenir : droite = descendre, gauche = remonter.
  */
 #define SYSTEM_ENCODER_A_GPIO                   GPIO_NUM_1
 #define SYSTEM_ENCODER_B_GPIO                   GPIO_NUM_2
