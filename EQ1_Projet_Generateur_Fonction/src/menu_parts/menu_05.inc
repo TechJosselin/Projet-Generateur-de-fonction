@@ -12,8 +12,8 @@
             confirmation=CONFIRMER_VOUT_ON;choix_oui=false;aller(PAGE_CONFIRM);
             break;
         case 2:
-            if(integration_couper_sortie())message("VOUT DESACTIVEE","SORTIE OFF","",PAGE_SORTIE);
-            else message("ERREUR VOUT","COUPURE NON CONF.","",PAGE_SORTIE);
+            if(integration_couper_sortie())message("DDS DESACTIVE","SORTIE DDS OFF","",PAGE_SORTIE);
+            else message("ERREUR DDS","COUPURE NON CONF.","",PAGE_SORTIE);
             break;
         case 3:aller(PAGE_DIGITALES);break;
         case 4:aller(PAGE_MATERIEL);break;
