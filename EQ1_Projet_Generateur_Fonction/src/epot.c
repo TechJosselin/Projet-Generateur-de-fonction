@@ -9,8 +9,6 @@ INCLUDES
 ===============================================================================================*/
 #include "epot.h"
 
-#include <stddef.h>
-
 /*===============================================================================================
 DEFINES
 ===============================================================================================*/
@@ -21,31 +19,20 @@ DEFINES
     (uint8_t)((((memory_address) & 0x0FU) << 4U) | (((command) & 0x03U) << 2U))
 
 /*===============================================================================================
-TYPES LOCAUX
-===============================================================================================*/
-typedef struct
-{
-    i2c_master_dev_handle_t handle;
-    uint8_t last_raw;
-    bool has_last_raw;
-} epot_device_t;
-
-/*===============================================================================================
 VARIABLES LOCALES
 ===============================================================================================*/
-static epot_device_t gDevices[EPOT_CHANNEL_COUNT] = {0};
+static i2c_master_dev_handle_t gGainHandle = NULL;
+static i2c_master_dev_handle_t gOffsetHandle = NULL;
 static bool gEpotInitialized = false;
 
 /*===============================================================================================
 PROTOTYPES DE FONCTIONS LOCALES
 ===============================================================================================*/
 static bool Epot_IsValidAddress(uint8_t address);
-static bool Epot_IsValidChannel(epot_channel_t channel);
 static esp_err_t Epot_AddDevice(i2c_master_bus_handle_t bus_handle,
                                 uint8_t address,
                                 i2c_master_dev_handle_t *device_handle);
 static esp_err_t Epot_WriteWiper(i2c_master_dev_handle_t device_handle, uint8_t value);
-static void Epot_ResetDevice(epot_device_t *device);
 
 /*===============================================================================================
 FONCTIONS LOCALES
@@ -53,11 +40,6 @@ FONCTIONS LOCALES
 static bool Epot_IsValidAddress(uint8_t address)
 {
     return (address >= EPOT_I2C_ADDRESS_MIN) && (address <= EPOT_I2C_ADDRESS_MAX);
-}
-
-static bool Epot_IsValidChannel(epot_channel_t channel)
-{
-    return ((int)channel >= 0) && (channel < EPOT_CHANNEL_COUNT);
 }
 
 static esp_err_t Epot_AddDevice(i2c_master_bus_handle_t bus_handle,
@@ -98,18 +80,6 @@ static esp_err_t Epot_WriteWiper(i2c_master_dev_handle_t device_handle, uint8_t 
                                EPOT_I2C_TIMEOUT_MS);
 }
 
-static void Epot_ResetDevice(epot_device_t *device)
-{
-    if (device == NULL)
-    {
-        return;
-    }
-
-    device->handle = NULL;
-    device->last_raw = 0U;
-    device->has_last_raw = false;
-}
-
 /*===============================================================================================
 FONCTIONS PUBLIQUES
 ===============================================================================================*/
@@ -136,26 +106,19 @@ esp_err_t Epot_Init(i2c_master_bus_handle_t bus_handle,
         return ESP_ERR_INVALID_STATE;
     }
 
-    Epot_ResetDevice(&gDevices[EPOT_CHANNEL_GAIN]);
-    Epot_ResetDevice(&gDevices[EPOT_CHANNEL_OFFSET]);
-
-    err = Epot_AddDevice(bus_handle,
-                         gain_address,
-                         &gDevices[EPOT_CHANNEL_GAIN].handle);
+    err = Epot_AddDevice(bus_handle, gain_address, &gGainHandle);
     if (err != ESP_OK)
     {
-        Epot_ResetDevice(&gDevices[EPOT_CHANNEL_GAIN]);
+        gGainHandle = NULL;
         return err;
     }
 
-    err = Epot_AddDevice(bus_handle,
-                         offset_address,
-                         &gDevices[EPOT_CHANNEL_OFFSET].handle);
+    err = Epot_AddDevice(bus_handle, offset_address, &gOffsetHandle);
     if (err != ESP_OK)
     {
-        i2c_master_bus_rm_device(gDevices[EPOT_CHANNEL_GAIN].handle);
-        Epot_ResetDevice(&gDevices[EPOT_CHANNEL_GAIN]);
-        Epot_ResetDevice(&gDevices[EPOT_CHANNEL_OFFSET]);
+        i2c_master_bus_rm_device(gGainHandle);
+        gGainHandle = NULL;
+        gOffsetHandle = NULL;
         return err;
     }
 
@@ -166,26 +129,31 @@ esp_err_t Epot_Init(i2c_master_bus_handle_t bus_handle,
 esp_err_t Epot_Deinit(void)
 {
     esp_err_t first_error = ESP_OK;
+    esp_err_t err;
 
     if (!gEpotInitialized)
     {
         return ESP_ERR_INVALID_STATE;
     }
 
-    for (int channel = 0; channel < EPOT_CHANNEL_COUNT; channel++)
+    if (gGainHandle != NULL)
     {
-        epot_device_t *device = &gDevices[channel];
-
-        if (device->handle != NULL)
+        err = i2c_master_bus_rm_device(gGainHandle);
+        if ((err != ESP_OK) && (first_error == ESP_OK))
         {
-            const esp_err_t err = i2c_master_bus_rm_device(device->handle);
-            if ((err != ESP_OK) && (first_error == ESP_OK))
-            {
-                first_error = err;
-            }
+            first_error = err;
         }
+        gGainHandle = NULL;
+    }
 
-        Epot_ResetDevice(device);
+    if (gOffsetHandle != NULL)
+    {
+        err = i2c_master_bus_rm_device(gOffsetHandle);
+        if ((err != ESP_OK) && (first_error == ESP_OK))
+        {
+            first_error = err;
+        }
+        gOffsetHandle = NULL;
     }
 
     gEpotInitialized = false;
@@ -194,34 +162,22 @@ esp_err_t Epot_Deinit(void)
 
 esp_err_t Epot_SetRaw(epot_channel_t channel, uint8_t value)
 {
-    esp_err_t err;
-    epot_device_t *device;
-
     if (!gEpotInitialized)
     {
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (!Epot_IsValidChannel(channel))
+    switch (channel)
     {
-        return ESP_ERR_INVALID_ARG;
-    }
+        case EPOT_CHANNEL_GAIN:
+            return Epot_WriteWiper(gGainHandle, value);
 
-    device = &gDevices[channel];
-    if (device->handle == NULL)
-    {
-        return ESP_ERR_INVALID_STATE;
-    }
+        case EPOT_CHANNEL_OFFSET:
+            return Epot_WriteWiper(gOffsetHandle, value);
 
-    err = Epot_WriteWiper(device->handle, value);
-    if (err != ESP_OK)
-    {
-        return err;
+        default:
+            return ESP_ERR_INVALID_ARG;
     }
-
-    device->last_raw = value;
-    device->has_last_raw = true;
-    return ESP_OK;
 }
 
 esp_err_t Epot_SetGainRaw(uint8_t value)
@@ -234,45 +190,9 @@ esp_err_t Epot_SetOffsetRaw(uint8_t value)
     return Epot_SetRaw(EPOT_CHANNEL_OFFSET, value);
 }
 
-esp_err_t Epot_GetLastRaw(epot_channel_t channel, uint8_t *out_value)
-{
-    const epot_device_t *device;
-
-    if (out_value == NULL)
-    {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    if (!gEpotInitialized)
-    {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    if (!Epot_IsValidChannel(channel))
-    {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    device = &gDevices[channel];
-    if ((device->handle == NULL) || !device->has_last_raw)
-    {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    *out_value = device->last_raw;
-    return ESP_OK;
-}
-
 bool Epot_IsInitialized(void)
 {
     return gEpotInitialized;
-}
-
-bool Epot_IsChannelAvailable(epot_channel_t channel)
-{
-    return gEpotInitialized &&
-           Epot_IsValidChannel(channel) &&
-           (gDevices[channel].handle != NULL);
 }
 
 /*===============================================================================================

@@ -46,17 +46,11 @@ ECRAN OLED SH1106 1.3\" I2C
  *   - pin 2 -> VDD
  * Ces straps ne sélectionnent pas l'adresse I2C.
  *
- * L'écran utilisé sur le prototype est normalement à 0x3C.
- * 0x3D est de nouveau disponible comme adresse secondaire de détection,
- * car le MCP45HV51 du canal Gain est maintenant câblé à 0x3F.
- *
- * L'OLED est volontairement limité à 100 kHz pendant le diagnostic du bus partagé.
- * Cette vitesse est suffisante pour l'affichage 128x64 et améliore la marge I2C
- * lorsque plusieurs périphériques sont raccordés sur SDA/SCL.
+ * Le logiciel teste automatiquement les deux adresses usuelles du SH1106.
  */
 #define SYSTEM_OLED_I2C_ADDRESS_PRIMARY         0x3CU
 #define SYSTEM_OLED_I2C_ADDRESS_SECONDARY       0x3DU
-#define SYSTEM_OLED_I2C_SPEED_HZ                100000U
+#define SYSTEM_OLED_I2C_SPEED_HZ                400000U
 #define SYSTEM_OLED_WIDTH                       128U
 #define SYSTEM_OLED_HEIGHT                      64U
 #define SYSTEM_OLED_PROBE_TIMEOUT_MS            50U
@@ -73,13 +67,12 @@ ENCODEUR ROTATIF PEC12R-4220F-S0024
  *   - SW GND   -> GND
  *
  * Les entrées utilisent les pull-up internes de l'ESP32-C6.
- * Le driver compte maintenant un front montant du canal A par impulsion
- * et lit B pour déterminer le sens. Le PEC12R-S0024 fournit 24 impulsions/tour.
+ * Le décodage quadrature est réalisé sous interruption sur A et B.
  */
 #define SYSTEM_ENCODER_A_GPIO                   GPIO_NUM_1
 #define SYSTEM_ENCODER_B_GPIO                   GPIO_NUM_2
 #define SYSTEM_ENCODER_BUTTON_GPIO              GPIO_NUM_0
-#define SYSTEM_ENCODER_EDGES_PER_STEP           1U
+#define SYSTEM_ENCODER_EDGES_PER_STEP           4U
 #define SYSTEM_ENCODER_REVERSE_DIRECTION        0
 #define SYSTEM_ENCODER_POLL_PERIOD_MS           10U
 
@@ -101,14 +94,8 @@ GENERATEUR DDS AD9833
 /*===============================================================================================
 POTENTIOMETRES NUMERIQUES MCP45HV51
 ===============================================================================================*/
-/*
- * Adressage matériel actuellement câblé :
- *   - Gain   : A1 = 1, A0 = 1 -> 0x3F
- *   - Offset : A1 = 1, A0 = 0 -> 0x3E
- *
- * L'OLED peut ainsi utiliser 0x3C en primaire et 0x3D en secondaire sans collision I2C.
- */
-#define SYSTEM_EPOT_GAIN_I2C_ADDRESS            0x3FU
-#define SYSTEM_EPOT_OFFSET_I2C_ADDRESS          0x3EU
+#define SYSTEM_EPOT_GAIN_I2C_ADDRESS            0x3EU
+#define SYSTEM_EPOT_OFFSET_I2C_ADDRESS          0x3FU
+#define SYSTEM_EPOT_TEST_RAW_VALUE              127U
 
 #endif /* HARDWARE_CONFIG_H */

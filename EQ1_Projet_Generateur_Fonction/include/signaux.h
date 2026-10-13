@@ -32,17 +32,6 @@ typedef struct
 esp_err_t Signaux_GetPreset(uint8_t preset_number, signaux_signal_t *out_signal);
 esp_err_t Signaux_Apply(const signaux_signal_t *signal);
 esp_err_t Signaux_ApplyPreset(uint8_t preset_number);
-
-/*
- * Commandes brutes de la chaîne analogique.
- * Elles sont utilisées tant que les conversions physiques
- * amplitude Vpp -> wiper et offset V -> wiper ne sont pas calibrées.
- */
-esp_err_t Signaux_SetGainRaw(uint8_t raw_value);
-esp_err_t Signaux_GetGainRaw(uint8_t *out_raw_value);
-esp_err_t Signaux_SetOffsetRaw(uint8_t raw_value);
-esp_err_t Signaux_GetOffsetRaw(uint8_t *out_raw_value);
-
 bool Signaux_HasCurrentSignal(void);
 esp_err_t Signaux_GetCurrent(signaux_signal_t *out_signal);
 const char *Signaux_TypeToString(signaux_type_t type);
