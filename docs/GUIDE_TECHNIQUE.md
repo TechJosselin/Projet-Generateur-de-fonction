@@ -17,15 +17,30 @@ les sorties. L'ISR encodeur ne fait que pousser des états A/B dans une file.
 | `stockage` / `eeprom` | Transaction à deux banques / transport I²C 24LC32A |
 | `usb_protocol` / `usb_service` / `usb_transport` | Syntaxe pure / commandes et files / USB Serial-JTAG |
 | `ad9833`, `epot`, `sorties_digitales` | Pilotes matériels réels |
-| `entree`, `encodeur`, `oled`, `menu` | Décodage, acquisition, dessin et navigation |
+| `entree`, `encodeur`, `oled`, `menu` | Décodage, acquisition, dessin et sélection locale en lecture seule |
 | `integration_esp32` | Adaptation des pilotes ESP-IDF aux contrats testables |
 
 États : `NON_INITIALISE`, `ARRET_COMMANDE`, `PRET`, `ACTIF_COMMANDE`,
 `NON_CALIBRE`, `DEFAUT`. Ce sont des **états de commande**, pas des mesures.
 La dernière configuration entièrement commandée reste disponible séparément du
-catalogue. Une mutation du preset actif est refusée si l'arrêt échoue. Une édition
-locale utilise une révision : une modification USB concurrente invalide le brouillon.
+catalogue. Une mutation USB du preset actif est refusée si l'arrêt échoue.
+L'interface locale ne possède plus de brouillon ni de fonction d'édition : aucun
+événement encodeur ne modifie le catalogue ou le profil de calibration.
 Les erreurs matérielles restent mémorisées jusqu'à un arrêt confirmé par le pilote.
+
+Le menu démarre sur la liste des signaux. La rotation ne fait que parcourir le
+catalogue. Un clic appelle `integration_choisir()` puis, seulement si la sélection
+réussit, `integration_activer()` dans la même action. La fiche résultante affiche
+fréquence, amplitude crête-à-crête et offset sur trois grandes lignes, en lecture
+seule. Un clic revient à la liste sans arrêt ; une rotation revient au choix
+suivant/précédent. L'appui long demande l'arrêt de toutes les sorties depuis chaque
+écran. Aucun sous-menu d'activation ou de confirmation n'est nécessaire.
+
+Les menus d'édition, duplication, suppression, mémoire/profil, réglage des sorties
+numériques et pas de réglage sont supprimés. Les diagnostics et les commandes
+techniques restent accessibles par USB. La syntaxe USB et la distinction entre
+`$SELECT:N#` et `$ON#` sont conservées : le raccourci est propre au clic local.
+Le défilement de la liste et son animation n'envoient aucune commande de sortie.
 
 Application normale : valider le profil et la consigne → RESET DDS → forme/fréquence/
 PHASE0 sous RESET → deux EPOT dans l'ordre approuvé → stabilisation → activation DDS.
@@ -107,9 +122,9 @@ ultérieure ou `SAVE` constitue une demande explicite d'écriture. Une banque va
 ancienne peut être utilisée avec une alerte sur l'autre banque.
 
 Sauvegarde par instantané : révision RAM et révision sauvegardée sont distinctes.
-Une édition pendant la sauvegarde n'est pas effacée du suivi lorsque l'ancien
-instantané termine. Les pas d'édition et l'état ON ne sont pas persistés ; après
-redémarrage, aucune sélection ni activation n'est restaurée.
+Une modification USB pendant la sauvegarde n'est pas effacée du suivi lorsque l'ancien
+instantané termine. La navigation, la sélection et l'état ON ne sont pas persistés ;
+après redémarrage, aucune sélection ni activation n'est restaurée.
 
 ## 4. Protocole USB
 
@@ -118,6 +133,12 @@ CR/LF sont permis **entre** les trames. Un nouveau `$` resynchronise la récepti
 Une trame incomplète est abandonnée après 1 seconde d'inactivité. Le catalogue
 accepte les valeurs syntaxiquement valides même hors profil ; seule l'application
 vérifie les possibilités analogiques.
+
+La configuration d'un signal se fait exclusivement par USB, avec la trame du cahier :
+`$N:TYPE:AMPLITUDE:OFFSET:FREQUENCE#`. `TYPE` vaut `SIN`, `TRI` ou `CAR` ; les unités
+sont respectivement mV crête-à-crête, mV et Hz. Les deux lectures du cahier sont
+`$N?#` et `$?#`. Les commandes supplémentaires du tableau sont des extensions
+conservées pour la maintenance, le diagnostic et le contrôle depuis le PC.
 
 | Requête | Réponse / effet |
 |---|---|
@@ -225,15 +246,16 @@ erreurs u32 à 8/12, nombres de points u8 à 16/17 ; gain à 24 (8 × 9 octets),
 
 ## 6. Dépannage et limites pratiques
 
-`NON_CALIBRE` : éditer et sauvegarder reste possible ; importer le profil mesuré pour
-activer. `PLAGE` : revoir la consigne ou la capacité documentée, pas le seuil pour
-faire disparaître l'erreur. `VERIFICATION` : contrôler WP/EPOT et câblage. `DEFAUT` :
-consulter l'étape et les deux erreurs ; résoudre le défaut puis commander OFF avant ON.
+`NON_CALIBRE` : configurer et sauvegarder par USB reste possible ; importer le profil
+mesuré pour activer. `PLAGE` : revoir la consigne ou la capacité documentée, pas le
+seuil pour faire disparaître l'erreur. `VERIFICATION` : contrôler WP/EPOT et câblage.
+`DEFAUT` : consulter l'étape et les deux erreurs ; résoudre le défaut puis commander
+OFF avant ON. L'appui long demande OFF depuis tous les écrans du menu local.
 Les DDS/EPOT/EEPROM absents au boot nécessitent actuellement un redémarrage pour
 une nouvelle initialisation. L'OLED et le transport USB ont une reprise périodique.
 
-Sans EEPROM, la RAM reste utilisable et signalée non sauvegardée. Sans OLED,
-l'USB reste disponible. Sans client USB, l'application ne doit pas attendre
+Sans EEPROM, la RAM reste utilisable et signalée non sauvegardée par l'état USB.
+Sans OLED, l'USB reste disponible. Sans client USB, l'application ne doit pas attendre
 indéfiniment une lecture. L'arrêt logiciel n'est pas un dispositif de sécurité :
 le comportement avant le démarrage du processeur dépend du circuit.
 
