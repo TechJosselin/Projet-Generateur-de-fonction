@@ -1,105 +1,69 @@
 #!/usr/bin/env python3
-"""Compile et execute les tests C sur les sources courantes, sans ESP-IDF."""
+"""Tests natifs du firmware courant. Les faux pilotes restent sous test/native."""
 from __future__ import annotations
-
 import argparse
-import hashlib
+import datetime as dt
 import json
 import os
 from pathlib import Path
 import platform
-import shlex
 import shutil
 import subprocess
 import sys
-from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[1]
-FIRMWARE = ROOT / "EQ1_Projet_Generateur_Fonction"
-
+FW = ROOT / 'EQ1_Projet_Generateur_Fonction'
+CORE = ['gf', 'signaux', 'analogique', 'stockage', 'integration', 'usb_protocol', 'usb_service']
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cc", default=os.environ.get("CC", "gcc"),
-                        help="Executable GCC ou Clang (sans options).")
-    parser.add_argument("--sanitize", action="store_true",
-                        help="Activer AddressSanitizer et UndefinedBehaviorSanitizer.")
-    parser.add_argument("--build-dir", type=Path, default=ROOT / "build" / "native")
-    args = parser.parse_args()
-    build = args.build_dir.resolve()
-    build.mkdir(parents=True, exist_ok=True)
-    log_path = build / "tests.log"
-    report_path = build / "results.json"
-    report = {
-        "started_utc": datetime.now(timezone.utc).isoformat(),
-        "host": platform.platform(),
-        "python": platform.python_version(),
-        "sanitizers": args.sanitize,
-        "status": "FAIL",
-        "sources_sha256": {},
-    }
-    files = [FIRMWARE / "src" / "signaux.c", FIRMWARE / "src" / "usb_protocol.c",
-             FIRMWARE / "test" / "native" / "test_baseline.c"]
-    headers = [FIRMWARE / "include" / "signaux.h", FIRMWARE / "include" / "usb_protocol.h"]
-    exit_code = 1
-    with log_path.open("w", encoding="utf-8") as log:
-        def record(text: str) -> None:
-            print(text, flush=True)
-            log.write(text + "\n")
-            log.flush()
-
-        def run(command: list[str], timeout: int = 60) -> None:
-            record("$ " + shlex.join(command))
-            env = os.environ.copy()
-            if args.sanitize:
-                env["ASAN_OPTIONS"] = "detect_leaks=1:halt_on_error=1"
-                env["UBSAN_OPTIONS"] = "halt_on_error=1:print_stacktrace=1"
-            result = subprocess.run(command, cwd=ROOT, env=env, text=True,
-                                    encoding="utf-8", errors="replace",
-                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                    timeout=timeout, check=False)
-            record(result.stdout.rstrip())
-            if result.returncode:
-                raise RuntimeError(f"Commande en echec (code {result.returncode}).")
-
-        try:
-            compiler = shutil.which(args.cc)
-            if compiler is None:
-                raise RuntimeError(f"Compilateur introuvable : {args.cc}")
-            for source in files + headers:
-                report["sources_sha256"][str(source.relative_to(ROOT))] = hashlib.sha256(
-                    source.read_bytes()).hexdigest()
-            git = shutil.which("git")
-            if git:
-                ref = subprocess.run([git, "rev-parse", "HEAD"], cwd=ROOT,
-                                     text=True, capture_output=True, timeout=10, check=False)
-                report["git_commit"] = ref.stdout.strip() if ref.returncode == 0 else None
-            run([compiler, "--version"])
-            executable = build / ("test_baseline.exe" if os.name == "nt" else "test_baseline")
-            # No cached binary is executed if compilation fails.
-            executable.unlink(missing_ok=True)
-            flags = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-Wpedantic", "-O1", "-g"]
-            if args.sanitize:
-                flags += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer",
-                          "-fno-sanitize-recover=all"]
-                if sys.platform.startswith("linux"):
-                    flags += ["-fno-pie", "-no-pie"]
-            command = [compiler, *flags, "-I", str(FIRMWARE / "include"),
-                       *(str(path) for path in files), "-o", str(executable)]
-            run(command)
-            run([str(executable)])
-            report["status"] = "PASS"
-            exit_code = 0
-        except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
-            report["error"] = str(exc)
-            record("ERREUR : " + str(exc))
-        finally:
-            report["finished_utc"] = datetime.now(timezone.utc).isoformat()
-            report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n",
-                                   encoding="utf-8")
-            record(f"{report['status']} — rapport : {report_path}")
-    return exit_code
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    parser.add_argument('--sanitize', action='store_true')
+    parser.add_argument('--cc', default=os.environ.get('CC', 'gcc'))
+    a = parser.parse_args()
+    out = ROOT/'build/native'; out.mkdir(parents=True, exist_ok=True)
+    report = {'time_utc':dt.datetime.now(dt.timezone.utc).isoformat(), 'host':platform.platform(),
+              'sanitize':a.sanitize, 'status':'FAIL', 'commands':[]}
+    def run(cmd: list[str], log) -> None:
+        log.write('$ '+' '.join(cmd)+'\n');log.flush()
+        result = subprocess.run(cmd, cwd=ROOT, text=True, encoding='utf-8', errors='replace',
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=180)
+        log.write(result.stdout); log.flush(); print(result.stdout, end='')
+        report['commands'].append({'command':cmd, 'returncode':result.returncode})
+        if result.returncode:
+            raise RuntimeError(f'Echec ({result.returncode}) : {cmd[0]}')
+    try:
+        with (out/'tests.log').open('w',encoding='utf-8') as log:
+            cc = shutil.which(a.cc)
+            if not cc:
+                raise RuntimeError(f'Compilateur C introuvable : {a.cc}')
+            run([cc,'--version'],log)
+            flags = ['-std=c11','-Wall','-Wextra','-Werror','-Wpedantic','-O1','-g']
+            if a.sanitize:
+                flags += ['-fsanitize=address,undefined','-fno-omit-frame-pointer','-fno-sanitize-recover=all']
+                if sys.platform.startswith('linux'): flags += ['-fno-pie','-no-pie']
+            suites = [('systeme',CORE,[]),('ui',CORE+['entree','menu'],[]),
+                      ('drivers',['ad9833','epot','eeprom','oled','sorties_digitales'],
+                       ['-I',str(FW/'test/native/fakes'),'-DSYSTEM_DIGITAL_1_GPIO=16','-DSYSTEM_DIGITAL_2_GPIO=17'])]
+            for name,sources,extra in suites:
+                exe=out/('test_'+name+('.exe' if os.name=='nt' else ''))
+                exe.unlink(missing_ok=True)  # Ne jamais reutiliser un ancien binaire apres erreur.
+                cmd=[cc,*flags,*extra,'-I',str(FW/'include')]
+                cmd += [str(FW/'src'/f'{s}.c') for s in sources]
+                cmd += [str(FW/'test/native'/f'test_{name}.c'),'-lm','-o',str(exe)]
+                run(cmd,log);run([str(exe)],log)
+            run([sys.executable,'-m','unittest','discover','-s','tools','-p','test_*.py','-v'],log)
+            # L'image produite par l'outil PC doit etre acceptee par le vrai decodeur C.
+            from generateur import calibration_image
+            from test_generateur import profile
+            fixture=out/'profil-test.bin';fixture.write_bytes(calibration_image(profile()))
+            exe=out/('test_codec.exe' if os.name=='nt' else 'test_codec');exe.unlink(missing_ok=True)
+            run([cc,*flags,'-I',str(FW/'include'),str(FW/'src/gf.c'),str(FW/'src/signaux.c'),
+                 str(FW/'src/analogique.c'),str(FW/'test/native/test_codec.c'),'-o',str(exe)],log)
+            run([str(exe),str(fixture)],log)
+        report['status']='PASS'
+    except (OSError,RuntimeError,subprocess.TimeoutExpired) as exc:
+        report['error']=str(exc);print(str(exc),file=sys.stderr)
+    finally:
+        (out/'results.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+    return 0 if report['status']=='PASS' else 1
+if __name__=='__main__':raise SystemExit(main())

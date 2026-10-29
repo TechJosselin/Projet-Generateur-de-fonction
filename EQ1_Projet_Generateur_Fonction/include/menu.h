@@ -1,7 +1,7 @@
 #ifndef MENU_H
 #define MENU_H
-#include "encodeur.h"
+#include "entree.h"
 void menu_initialiser(void);
 void menu_traiter(evenement_ui_t evenement);
-void menu_periodique(void);
+void menu_periodique(uint32_t maintenant_ms);
 #endif

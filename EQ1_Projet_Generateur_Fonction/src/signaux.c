@@ -44,7 +44,7 @@ bool signaux_valide(signal_config_t s){
 bool signaux_remplacer_ensemble(const signal_config_t *donnees,size_t n){
     if(!donnees || n==0 || n>SIGNAL_MAX)return false;
     for(size_t i=0;i<n;i++)if(!signaux_valide(donnees[i]))return false;
-    memcpy(catalogue,donnees,n*sizeof(*donnees));
+    memmove(catalogue,donnees,n*sizeof(*donnees));
     if(n<SIGNAL_MAX)memset(catalogue+n,0,(SIGNAL_MAX-n)*sizeof(*donnees));
     memset(changes,0,sizeof(changes));
     total=n;
@@ -125,4 +125,16 @@ void signaux_formater_frequence(char *dst,size_t n,uint32_t hz){
     if(hz>=1000000 && hz%1000000==0)snprintf(dst,n,"%"PRIu32"MHz",hz/1000000);
     else if(hz>=1000 && hz%1000==0)snprintf(dst,n,"%"PRIu32"kHz",hz/1000);
     else snprintf(dst,n,"%"PRIu32"Hz",hz);
+}
+
+bool signaux_ajouter(signal_config_t s){
+    if(total>=SIGNAL_MAX || !signaux_valide(s))return false;
+    catalogue[total]=s;changes[total++]=true;catalogue_change=true;return true;
+}
+void signaux_marquer_sauves(void){
+    memset(changes,0,sizeof(changes));catalogue_change=false;
+}
+bool signaux_egaux(signal_config_t a,signal_config_t b){
+    return a.forme==b.forme && a.amplitude_mvpp==b.amplitude_mvpp &&
+           a.offset_mv==b.offset_mv && a.frequence_hz==b.frequence_hz;
 }

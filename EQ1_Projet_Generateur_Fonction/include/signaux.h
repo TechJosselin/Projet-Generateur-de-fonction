@@ -42,4 +42,7 @@ const char *signaux_type_court(signal_forme_t type);
 const char *signaux_type_long(signal_forme_t type);
 void signaux_formater_tension(char *dst,size_t taille,int32_t mv,bool signe);
 void signaux_formater_frequence(char *dst,size_t taille,uint32_t hz);
+bool signaux_ajouter(signal_config_t s);
+void signaux_marquer_sauves(void);
+bool signaux_egaux(signal_config_t a,signal_config_t b);
 #endif
