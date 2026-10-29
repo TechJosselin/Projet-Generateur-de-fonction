@@ -1,7 +1,8 @@
 # Guide technique — Firmware de finalisation
 
 Version de format stockage : GFN2/1. Version profil : CAL1/1. Les valeurs électriques
-réelles restent à qualifier sur la carte. Voir [VALIDATION.md](VALIDATION.md).
+réelles restent à qualifier sur la carte. Voir [VALIDATION.md](VALIDATION.md) et
+[le correctif DDS sans profil](CORRECTION_DDS_SANS_PROFIL.md).
 
 ## 1. Architecture et contrats
 
@@ -20,21 +21,26 @@ les sorties. L'ISR encodeur ne fait que pousser des états A/B dans une file.
 | `entree`, `encodeur`, `oled`, `menu` | Décodage, acquisition, dessin et sélection locale en lecture seule |
 | `integration_esp32` | Adaptation des pilotes ESP-IDF aux contrats testables |
 
-États : `NON_INITIALISE`, `ARRET_COMMANDE`, `PRET`, `ACTIF_COMMANDE`,
-`NON_CALIBRE`, `DEFAUT`. Ce sont des **états de commande**, pas des mesures.
+États exposés : `NON_INITIALISE`, `ARRET_COMMANDE`, `PRET`, `ACTIF_COMMANDE`,
+`DDS_SEUL_COMMANDE`, `NON_CALIBRE`, `DEFAUT`. Ce sont des **états de commande**,
+pas des mesures. En interne, le mode DDS seul utilise `SYS_ACTIF_COMMANDE` avec
+`commande_courante=false` : le DDS est actif, mais la consigne analogique complète
+n'est pas appliquée. `integration_nom_etat()` distingue ces deux modes.
 La dernière configuration entièrement commandée reste disponible séparément du
-catalogue. Une mutation USB du preset actif est refusée si l'arrêt échoue.
+catalogue ; une activation DDS seule ne remplace ni cette configuration ni ses codes.
+Une mutation USB du preset actif est refusée si l'arrêt échoue.
 L'interface locale ne possède plus de brouillon ni de fonction d'édition : aucun
 événement encodeur ne modifie le catalogue ou le profil de calibration.
 Les erreurs matérielles restent mémorisées jusqu'à un arrêt confirmé par le pilote.
 
 Le menu démarre sur la liste des signaux. La rotation ne fait que parcourir le
 catalogue. Un clic appelle `integration_choisir()` puis, seulement si la sélection
-réussit, `integration_activer()` dans la même action. La fiche résultante affiche
-fréquence, amplitude crête-à-crête et offset sur trois grandes lignes, en lecture
-seule. Un clic revient à la liste sans arrêt ; une rotation revient au choix
-suivant/précédent. L'appui long demande l'arrêt de toutes les sorties depuis chaque
-écran. Aucun sous-menu d'activation ou de confirmation n'est nécessaire.
+réussit, `integration_activer()` dans la même action. Avec un profil mesuré, la fiche
+affiche fréquence, amplitude crête-à-crête et offset sur trois grandes lignes.
+Sans profil, elle affiche `DDS SEUL`, la fréquence, `A NON REGLEE` et `O NON REGLE`.
+Un clic revient à la liste sans arrêt ; une rotation revient au choix suivant/précédent.
+L'appui long demande l'arrêt de toutes les sorties depuis chaque écran.
+Aucun sous-menu d'activation ou de confirmation n'est nécessaire.
 
 Les menus d'édition, duplication, suppression, mémoire/profil, réglage des sorties
 numériques et pas de réglage sont supprimés. Les diagnostics et les commandes
@@ -42,10 +48,19 @@ techniques restent accessibles par USB. La syntaxe USB et la distinction entre
 `$SELECT:N#` et `$ON#` sont conservées : le raccourci est propre au clic local.
 Le défilement de la liste et son animation n'envoient aucune commande de sortie.
 
-Application normale : valider le profil et la consigne → RESET DDS → forme/fréquence/
+Avec un profil mesuré : valider le profil et la consigne → RESET DDS → forme/fréquence/
 PHASE0 sous RESET → deux EPOT dans l'ordre approuvé → stabilisation → activation DDS.
+Sans profil : RESET DDS → forme/fréquence/PHASE0 → activation DDS, **sans écrire les EPOT**.
+Ce repli ne concerne que `GF_NON_CALIBRE`. Une erreur de plage ou de validation d'un
+profil présent n'est pas contournée. Aucun profil fictif ni coefficient nominal
+n'est créé ; les positions gain/offset restent celles de l'étage matériel.
 Le succès n'est publié qu'après la dernière commande. Sur échec, tenter l'arrêt et
 conserver séparément l'erreur initiale et le résultat de cette tentative.
+
+Le mode DDS seul débloque les essais du module AD9833 ; il ne garantit ni un signal
+à la BNC, ni l'amplitude ou l'offset demandés. La commande complète nécessite une
+conversion fondée sur le schéma réel ou un profil mesuré. Le schéma bloc ne fournit
+pas les rapports de résistances et les connexions nécessaires à cette conversion.
 
 Les attentes de bus sont bornées ; cela ne fait pas de la boucle un système temps
 réel dur. Une activation peut prendre plusieurs transactions et jusqu'à 100 ms de
@@ -132,7 +147,8 @@ ASCII, sans espaces, délimiteurs `$` et `#`, moins de 96 octets par requête.
 CR/LF sont permis **entre** les trames. Un nouveau `$` resynchronise la réception.
 Une trame incomplète est abandonnée après 1 seconde d'inactivité. Le catalogue
 accepte les valeurs syntaxiquement valides même hors profil ; seule l'application
-vérifie les possibilités analogiques.
+complète avec profil vérifie les possibilités analogiques. Sans profil, amplitude
+et offset sont stockés mais ne sont pas appliqués aux EPOT.
 
 La configuration d'un signal se fait exclusivement par USB, avec la trame du cahier :
 `$N:TYPE:AMPLITUDE:OFFSET:FREQUENCE#`. `TYPE` vaut `SIN`, `TRI` ou `CAR` ; les unités
@@ -145,9 +161,9 @@ conservées pour la maintenance, le diagnostic et le contrôle depuis le PC.
 | `$3:SIN:2000:+3000:1000#` | Modifier N existant, ou ajouter exactement à nombre+1 ; `OK:RAM:revision` |
 | `$3?#` | `$3:SIN:2000:+3000:1000#` |
 | `$?#` | Toutes les vraies trames, dans l'ordre, sans marqueur de fin ajouté |
-| `$STATE?#` | État détaillé ci-dessous |
+| `$STATE?#` | État détaillé ci-dessous, distingue DDS seul et commande complète |
 | `$SELECT:3#` | Sélection en RAM, sans activation |
-| `$ON#` | Appliquer entièrement puis activer ; refus sans profil valide |
+| `$ON#` | Avec profil : commande complète ; sans profil : forme/fréquence DDS seules |
 | `$OFF#` | Arrêt DDS et des sorties numériques configurées |
 | `$SAVE#` | Demander une sauvegarde ; ne pas confondre demande et réussite |
 | `$LOAD#` | Arrêter si nécessaire puis remplacer la RAM par l'EEPROM valide |
@@ -181,6 +197,8 @@ Sélection vaut 0 sans sélection, sinon 1…100. Les indicateurs valent 0 ou 1.
 La sauvegarde est confirmée seulement si `DIRTY=0`, `SAVING=0` et
 `REV_SAUVEE=REV_RAM` pour la révision demandée. Le client PC effectue ce contrôle.
 Un `ON_COMMANDE` confirme la séquence de pilotes, jamais une mesure VOUT.
+Cet acquittement est conservé dans les deux modes pour compatibilité ; consulter
+`$STATE?#` pour distinguer `DDS_SEUL_COMMANDE` et `ACTIF_COMMANDE`.
 
 Le tampon TX applicatif est borné à 8192 octets. Les écritures partielles sont
 reprises. Après 2 s sans progression d'une réponse en attente, abandonner la file
@@ -224,7 +242,7 @@ Les codes sont strictement croissants (0…255) ; les amplitudes/deltas sont str
 monotones, croissants ou décroissants. `zero_mv` est le niveau moyen de référence
 avant l'offset ajouté par la seconde table, pas une constante supposée nulle.
 Les exemples synthétiques dans les tests servent uniquement à tester les algorithmes.
-Ne jamais les importer sur une carte pour contourner `NON_CALIBRE`.
+Ne jamais les importer sur une carte comme s'il s'agissait d'une calibration réelle.
 
 ```sh
 python tools/generateur.py --port COM7 cal-import profil_mesure.json
@@ -246,9 +264,12 @@ erreurs u32 à 8/12, nombres de points u8 à 16/17 ; gain à 24 (8 × 9 octets),
 
 ## 6. Dépannage et limites pratiques
 
-`NON_CALIBRE` : configurer et sauvegarder par USB reste possible ; importer le profil
-mesuré pour activer. `PLAGE` : revoir la consigne ou la capacité documentée, pas le
-seuil pour faire disparaître l'erreur. `VERIFICATION` : contrôler WP/EPOT et câblage.
+`NON_CALIBRE` à l'arrêt signifie qu'aucun profil approuvé n'est chargé. Un clic ou
+`$ON#` permet maintenant la génération DDS seule. Pour commander aussi l'amplitude
+et l'offset, importer le profil mesuré. `DDS_SEUL_COMMANDE` ne prouve pas qu'un signal
+correct est présent à VOUT : vérifier d'abord le module DDS puis l'étage analogique.
+`PLAGE` : revoir la consigne ou la capacité documentée, pas le seuil pour faire
+disparaître l'erreur. `VERIFICATION` : contrôler WP/EPOT et câblage.
 `DEFAUT` : consulter l'étape et les deux erreurs ; résoudre le défaut puis commander
 OFF avant ON. L'appui long demande OFF depuis tous les écrans du menu local.
 Les DDS/EPOT/EEPROM absents au boot nécessitent actuellement un redémarrage pour

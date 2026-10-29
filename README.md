@@ -9,12 +9,19 @@ Les branches `main` et `integration/full-system` ne sont pas remplacées.
 Catalogue, commande coordonnée, conversion par profil, stockage EEPROM à deux
 banques, USB, menus, pilotes et tests sont implémentés. Le bilan des preuves et
 les tâches matérielles ouvertes sont dans [VALIDATION.md](docs/VALIDATION.md).
+Le comportement sans profil a été corrigé après ce bilan : voir
+[le correctif DDS sans profil](docs/CORRECTION_DDS_SANS_PROFIL.md).
 
-**Aucun profil analogique réel n'est livré. L'activation normale est donc refusée
-avec `NON_CALIBRE` tant qu'un profil mesuré n'a pas été importé.** Les deux sorties
-numériques restent non affectées (`-1`) jusqu'à confirmation de leur fonction et
-de leur câblage. Ce n'est pas une version certifiée du produit physique.
+**Aucun profil analogique réel n'est livré. Sans profil, un clic active désormais
+la forme et la fréquence du DDS, sans régler les EPOT de gain et d'offset.**
+Ce mode est identifié `DDS SEUL`, pas comme une sortie analogique entièrement
+configurée. L'amplitude et l'offset du catalogue ne sont pas appliqués ; VOUT dépend
+alors de l'état réel de l'étage analogique. Aucun coefficient nominal ni profil
+approuvé fictif n'est installé. Avec un profil mesuré, la commande complète reste
+prioritaire et conserve ses contrôles de plage et de matériel.
 
+Les deux sorties numériques restent non affectées (`-1`) jusqu'à confirmation de
+leur fonction et de leur câblage. Ce n'est pas une version certifiée du produit physique.
 Un arrêt du DDS ne garantit **ni VOUT = 0 V, ni une sortie déconnectée**. Ne pas
 brancher une charge sensible avant vérification de l'étage analogique et du boot.
 
@@ -27,6 +34,7 @@ préalablement sauvegardées :
 ```sh
 git fetch origin
 git switch finalisation/p02-p11
+git pull --ff-only origin finalisation/p02-p11
 python -m venv .venv
 ```
 
@@ -72,13 +80,27 @@ L'affichage conserve trois lignes en grande police et le défilement horizontal 
 la ligne pointée.
 
 - **Tourner** : parcourir les signaux, sans modifier leurs paramètres ni la sortie active.
-- **Cliquer sur un signal** : le sélectionner et l'activer immédiatement dans la même
-  action, sans menu « Sortie / Arrêt » ni confirmation supplémentaire. La fiche affiche
-  sa fréquence (`F`), son amplitude crête-à-crête (`A`, Vpp) et son offset (`O`).
+- **Cliquer sur un signal** : le sélectionner et demander son activation dans la même
+  action, sans menu « Sortie / Arrêt » ni confirmation supplémentaire.
 - **Depuis la fiche** : cliquer revient à la liste sans arrêter la sortie ; tourner
   revient directement au choix suivant/précédent. Un clic applique ensuite ce choix.
 - **Appui long, sur n'importe quel écran** : demander l'arrêt de toutes les sorties
   puis revenir à la liste. Un échec d'arrêt est affiché, jamais présenté comme réussi.
+
+Avec un profil mesuré, la fiche affiche `ON`, la fréquence (`F`), l'amplitude
+crête-à-crête (`A`, Vpp) et l'offset (`O`). Sans profil, elle affiche par exemple :
+
+```text
+S1 SIN / DDS SEUL
+F 10kHz
+A NON REGLEE
+O NON REGLE
+```
+
+Le bandeau de liste utilise alors `DDS S1`, et non `ON S1`. Les tensions du catalogue
+restent des consignes stockées, pas des tensions mesurées. Les EPOT sont laissés
+à leurs positions courantes ou de démarrage : un signal correct à la BNC n'est pas
+garanti par ce mode. Il sert à débloquer les essais de forme/fréquence du DDS.
 
 Aucun type, fréquence, amplitude, offset ou paramètre numérique n'est éditable depuis
 l'encodeur. Il n'y a plus de duplication, suppression, restauration usine, chargement
@@ -86,15 +108,14 @@ EEPROM, effacement de profil ou réglage de pas dans le menu. Les configurations
 modifiables **uniquement par USB**. Les commandes de diagnostic restent disponibles
 par USB (`$STATE?#`, `$DIG?#`, `$CAL?#`).
 
-Le bandeau indique le signal commandé ON, l'arrêt commandé OFF ou un défaut ; ce ne
-sont pas des mesures de VOUT. L'activation conserve les contrôles de calibration, de
-plage et de matériel. Un refus affiche le motif au lieu d'annoncer une sortie active.
+Les erreurs matérielles restent bloquantes et visibles. Un profil présent refusant
+une consigne (`PLAGE`, forme non qualifiée, etc.) n'est jamais contourné par le mode DDS.
 
 ### Configuration USB selon le cahier des charges
 
 Écriture : `$N:TYPE:AMPLITUDE:OFFSET:FREQUENCE#`, avec `TYPE` égal à `SIN`, `TRI`
 ou `CAR`, amplitude en mV crête-à-crête, offset en mV et fréquence en Hz.
-Par exemple, signal 1 sinus, 1 Vpp, offset nul et 10 kHz :
+Par exemple, signal 1 sinus, consigne de 1 Vpp, offset nul et 10 kHz :
 
 ```text
 $1:SIN:1000:+0:10000#
@@ -104,13 +125,15 @@ Lire ce signal : `$1?#`. Lire tous les signaux : `$?#`. Les réponses de lecture
 reprennent le format d'écriture. Les commandes étendues déjà présentes restent
 inchangées ; notamment `$SELECT:N#` puis `$ON#` pour une commande de sortie depuis
 le PC. Le raccourci sélection + activation concerne le clic local.
+`$STATE?#` distingue `DDS_SEUL_COMMANDE` de `ACTIF_COMMANDE`. L'acquittement
+`OK:ON_COMMANDE` est conservé pour compatibilité : il ne certifie pas l'amplitude/offset.
 
 Chaque modification USB validée demande une sauvegarde différée de 300 ms.
 Parcourir, sélectionner ou activer un signal ne réécrit pas ses paramètres en EEPROM.
 Après un échec de sauvegarde, `$SAVE#` redemande un essai ; le firmware ne réécrit pas
 en boucle une mémoire défaillante. Modifier par USB un signal actif impose d'abord
 son arrêt et ne le réactive pas automatiquement : le sélectionner à nouveau pour
-appliquer les nouvelles valeurs.
+appliquer les nouvelles valeurs, dans les limites du mode de commande disponible.
 
 Fermer le moniteur série avant d'utiliser le client PC ; remplacer COM7 par le port
 réel (`/dev/ttyACM0` sous Linux, par exemple) :
@@ -129,10 +152,12 @@ L'acquittement `OK:RAM` n'est pas une preuve de persistance.
 
 ## Documents et organisation
 
+- [Correctif DDS sans profil](docs/CORRECTION_DDS_SANS_PROFIL.md) : comportement,
+  limites et essais ajoutés pour supprimer le blocage de la génération DDS.
 - [Guide technique](docs/GUIDE_TECHNIQUE.md) : architecture, brochage, stockage,
   protocole exact, calibration, commandes et dépannage.
-- [Validation et phases](docs/VALIDATION.md) : preuves, matrice EX01–EX10, écarts,
-  procédures et statut des phases P01–P11.
+- [Validation et phases](docs/VALIDATION.md) : preuves historiques, matrice EX01–EX10,
+  écarts, procédures et statut des phases P01–P11.
 - [Relevé des dix presets](docs/recette_presets.csv) : valeurs demandées et champs
   de mesure volontairement vides.
 - [Plan initial](docs/PLAN_FINALISATION_PROJET.md) et [preuve P01](docs/P01_SUIVI.md) :
