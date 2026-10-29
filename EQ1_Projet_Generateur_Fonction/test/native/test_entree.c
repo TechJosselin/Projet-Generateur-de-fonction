@@ -7,7 +7,9 @@ int main(void) {
     const uint8_t a[]={2,0,1,3},b[]={1,0,2,3};int s=0;
     for(unsigned i=0;i<4;i++) {s+=quadrature_traiter(&q,a[i]);}
     CHECK(s==1);
-    s=0;for(unsigned i=0;i<4;i++)s+=quadrature_traiter(&q,b[i]);CHECK(s==-1);
+    s=0;
+    for(unsigned i=0;i<4;i++) {s+=quadrature_traiter(&q,b[i]);}
+    CHECK(s==-1);
     bouton_t p;bouton_initialiser(&p,false,0);
     CHECK(bouton_traiter(&p,true,20)==UI_AUCUN);
     CHECK(bouton_traiter(&p,true,50)==UI_AUCUN);
