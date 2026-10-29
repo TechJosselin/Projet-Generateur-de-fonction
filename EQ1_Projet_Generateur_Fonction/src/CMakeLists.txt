@@ -3,7 +3,7 @@ idf_component_register(
     SRCS
         "ad9833.c" "analogique.c" "eeprom.c" "encodeur.c" "entree.c"
         "epot.c" "gf.c" "i2c_commun.c" "initialisation.c" "integration.c"
-        "integration_esp32.c" "main.c" "menu.c" "oled.c" "signaux.c"
+        "integration_esp32.c" "integration_compat.c" "main.c" "menu.c" "oled.c" "signaux.c"
         "sorties_digitales.c" "stockage.c" "usb_protocol.c" "usb_service.c"
         "usb_transport.c"
     INCLUDE_DIRS "../include"

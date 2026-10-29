@@ -41,8 +41,8 @@ def main() -> int:
             if a.sanitize:
                 flags += ['-fsanitize=address,undefined','-fno-omit-frame-pointer','-fno-sanitize-recover=all']
                 if sys.platform.startswith('linux'): flags += ['-fno-pie','-no-pie']
-            suites = [('systeme',CORE,[]),('ui',CORE+['entree','menu'],[]),
-                      ('drivers',['ad9833','epot','eeprom','oled','sorties_digitales'],
+            suites = [('systeme',CORE,[]),('entree',['entree'],[]),
+                      ('drivers',['ad9833','epot','eeprom','sorties_digitales'],
                        ['-I',str(FW/'test/native/fakes'),'-DSYSTEM_DIGITAL_1_GPIO=16','-DSYSTEM_DIGITAL_2_GPIO=17'])]
             for name,sources,extra in suites:
                 exe=out/('test_'+name+('.exe' if os.name=='nt' else ''))

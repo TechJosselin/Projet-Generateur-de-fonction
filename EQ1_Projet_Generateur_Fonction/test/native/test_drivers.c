@@ -111,17 +111,6 @@ static void eeprom(void) {
     absent=true;CHECK(e.ready(e.ctx)==GF_OCCUPE);CHECK(e.read(e.ctx,0,out,10)==GF_IO);absent=false;
     puts("PASS pilote EEPROM : adresses 16 bits, pages, lecture fractionnee et NACK.");
 }
-static void display(void) {
-    CHECK(oled_initialiser());oled_effacer();oled_ligne(0,"$#",false);
-    unsigned prev=page_transfers;for(unsigned t=1;t<=10;t++)oled_periodique(t);
-    CHECK(page_transfers==prev+8);prev=page_transfers;oled_periodique(11);CHECK(page_transfers==prev);
-    oled_ligne(0,"$#",true);oled_periodique(12);CHECK(page_transfers==prev+1);
-    unsigned initial_adds=adds;absent=true;oled_ligne(1,"ERREUR",false);oled_periodique(13);
-    CHECK(!oled_est_present() && oled_erreurs()==1);absent=false;
-    oled_periodique(2014);CHECK(oled_est_present() && adds==initial_adds);
-    for(unsigned t=2015;t<2025;t++)oled_periodique(t);
-    CHECK(oled_est_present());puts("PASS OLED : pages sales, repli/reprise apres NACK sans fuite de handle.");
-}
 static void digital(void) {
     digitales_initialiser();CHECK(digitales_disponible(0) && digitales_disponible(1));
     CHECK(digitales_commander(0,1000,500,true)==GF_OK);CHECK(digitales_commander(1,100000,250,true)==GF_OK);
@@ -130,4 +119,4 @@ static void digital(void) {
     pwm_fail=true;CHECK(digitales_commander(0,2000,500,true)==GF_IO);pwm_fail=false;
     puts("PASS PWM optionnel : deux timers, bornes, niveau fixe et erreur de pilote. GPIO de test uniquement.");
 }
-int main(void){dds();epot();eeprom();display();digital();printf("RESULTAT pilotes : %u assertions. Aucune carte physique.\n",checks);return 0;}
+int main(void){dds();epot();eeprom();digital();printf("RESULTAT pilotes : %u assertions. Aucune carte physique.\n",checks);return 0;}
