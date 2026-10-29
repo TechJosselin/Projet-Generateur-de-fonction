@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-static unsigned checks,arrets,commandes,activations;
+static unsigned checks,arrets,commandes,activations,epots;
 static bool panne_arret,panne_configuration;
 static char lignes[8][22],grandes[3][OLED_GRAND_NB_CARACTERES+1];
 static bool inverse[8],separateur;
@@ -36,7 +36,7 @@ static gf_result_t stop(void *ctx){(void)ctx;arrets++;return panne_arret?GF_IO:G
 static gf_result_t configurer(void *ctx,const signal_config_t *s) {
     (void)ctx;CHECK(s!=NULL);commandes++;return panne_configuration?GF_IO:GF_OK;
 }
-static gf_result_t epot(void *ctx,uint8_t code){(void)ctx;(void)code;return GF_OK;}
+static gf_result_t epot(void *ctx,uint8_t code){(void)ctx;(void)code;epots++;return GF_OK;}
 static gf_result_t activer(void *ctx){(void)ctx;activations++;return GF_OK;}
 /* Profil SYNTHETIQUE, uniquement dans le test. Jamais importe au boot du produit. */
 static calibration_t fixture(void) {
@@ -58,7 +58,7 @@ static void initialiser(bool calibre) {
         calibration_t p=fixture();uint8_t image[CAL_IMAGE_SIZE];
         CHECK(calibration_encoder(&p,image)==GF_OK);CHECK(integration_importer_calibration(image)==GF_OK);
     }
-    menu_initialiser();usb_service_initialiser();arrets=commandes=activations=0;
+    menu_initialiser();usb_service_initialiser();arrets=commandes=activations=epots=0;
 }
 static void clic(void){menu_traiter(UI_CLIC);}
 static void plus(unsigned n){while(n--)menu_traiter(UI_ROTATION_PLUS);}
@@ -123,6 +123,31 @@ static void selection_directe(void) {
     menu_traiter(UI_AUCUN);CHECK(activations==3);
     puts("PASS selection : un clic active, retour et rotation sans commande, appui long arrete.");
 }
+static void sans_calibration(void) {
+    for(unsigned i=0;i<SIGNAL_INIT_COUNT;i++) {
+        initialiser(false);uint32_t revision=integration_statut()->revision;
+        plus(i);clic();dessin(0);
+        CHECK(activations==1 && commandes==1 && epots==0);
+        CHECK(strstr(lignes[0],"DDS SEUL") && !strcmp(grandes[1],"A NON REGLEE") && !strcmp(grandes[2],"O NON REGLE"));
+        CHECK(!integration_statut()->commande_courante && !integration_calibration()->approuve);
+        CHECK(integration_statut()->revision==revision);
+        clic();dessin(1);CHECK(strstr(lignes[0],"DDS S") && activations==1);
+        menu_traiter(UI_APPUI_LONG);dessin(2);CHECK(strstr(lignes[0],"OFF"));
+    }
+    initialiser(false);clic();char reponse[512];
+    usb("$STATE?#",0,reponse,sizeof(reponse));CHECK(strstr(reponse,"DDS_SEUL_COMMANDE"));
+    usb("$1:SIN:1500:+250:12345#",1,reponse,sizeof(reponse));
+    CHECK(strstr(reponse,"$OK:RAM:") && integration_statut()->etat!=SYS_ACTIF_COMMANDE);
+    clic();clic();dessin(2);CHECK(!strcmp(grandes[0],"F 12345Hz") && epots==0);
+    usb("$1?#",3,reponse,sizeof(reponse));CHECK(!strcmp(reponse,"$1:SIN:1500:+250:12345#"));
+    /* Importer un profil ne reactive pas tout seul la sortie. */
+    calibration_t p=fixture();uint8_t image[CAL_IMAGE_SIZE];
+    CHECK(calibration_encoder(&p,image)==GF_OK);CHECK(integration_importer_calibration(image)==GF_OK);
+    dessin(300);CHECK(strstr(lignes[0],"OFF"));
+    clic();clic();dessin(301);CHECK(strstr(lignes[0],"/ ON") && epots==2);
+    CHECK(!strcmp(grandes[1],"A 1.500Vpp") && !strcmp(grandes[2],"O +0.250V"));
+    puts("PASS UI DDS seul : clic sans profil, indications A/O non regles, USB et passage au mode calibre.");
+}
 static void lecture_seule_et_usb(void) {
     initialiser(true);signal_config_t copie[SIGNAL_INIT_COUNT];
     for(size_t i=0;i<SIGNAL_INIT_COUNT;i++)copie[i]=*signaux_lire(i);
@@ -151,9 +176,9 @@ static void lecture_seule_et_usb(void) {
     puts("PASS lecture seule : 10000 evenements sans mutation, ecriture/lectures USB du cahier des charges.");
 }
 static void erreurs(void) {
-    initialiser(false);clic();dessin(0);
-    CHECK(!strcmp(lignes[0],"SORTIE NON ACTIVEE") && !strcmp(lignes[2],"NON_CALIBRE"));
-    CHECK(activations==0 && commandes==0);clic();dessin(1);CHECK(nb_zones==1);
+    initialiser(false);panne_configuration=true;clic();dessin(0);
+    CHECK(!strcmp(lignes[0],"SORTIE NON ACTIVEE") && !strcmp(lignes[2],"IO"));
+    CHECK(activations==0 && commandes==1 && epots==0);clic();dessin(1);CHECK(nb_zones==1);
     initialiser(true);panne_configuration=true;clic();dessin(0);
     CHECK(integration_statut()->etat==SYS_DEFAUT && activations==0 && commandes==1);
     CHECK(!strcmp(lignes[0],"SORTIE NON ACTIVEE"));
@@ -165,7 +190,7 @@ static void erreurs(void) {
     plus(1);panne_arret=true;clic();dessin(2);
     CHECK(integration_statut()->etat==SYS_DEFAUT && integration_statut()->selection==0 && activations==1);
     CHECK(!strcmp(lignes[0],"SORTIE NON ACTIVEE"));
-    puts("PASS erreurs : calibration et defauts conserves, pas d'activation apres selection refusee.");
+    puts("PASS erreurs : defauts conserves avec/sans profil, pas d'activation apres selection refusee.");
 }
 static void listes_agrandies(void) {
     initialiser(true);dessin(0);CHECK(nb_grandes==3 && selection_visible==0);
@@ -197,6 +222,6 @@ static void listes_agrandies(void) {
     puts("PASS affichage : trois lignes, defilement, bornes, horloge, catalogue redimensionne et valeurs exactes.");
 }
 int main(void) {
-    entree();selection_directe();lecture_seule_et_usb();erreurs();listes_agrandies();
+    entree();selection_directe();sans_calibration();lecture_seule_et_usb();erreurs();listes_agrandies();
     printf("RESULTAT UI : %u assertions. Aucun ecran physique.\n",checks);return 0;
 }

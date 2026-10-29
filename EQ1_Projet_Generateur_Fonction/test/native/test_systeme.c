@@ -133,8 +133,58 @@ static void boot(bool cal) {
     CHECK(integration_choisir(0)==GF_OK);memset(&fake,0,sizeof(fake));
 }
 static void pompe(uint32_t debut,uint32_t fin){for(uint32_t t=debut;t<fin;t+=10)integration_periodique(t);}
+static void dds_sans_calibration(void) {
+    vierge();boot(false);uint32_t revision=integration_statut()->revision;
+    for(size_t i=0;i<SIGNAL_INIT_COUNT;i++) {
+        CHECK(integration_choisir(i)==GF_OK);CHECK(!fake.actif);
+        memset(&fake,0,sizeof(fake));CHECK(integration_activer()==GF_OK);
+        CHECK(fake.actif && fake.appels==3 && !strcmp(fake.sequence,"SDE"));
+        CHECK(integration_statut()->etat==SYS_ACTIF_COMMANDE);
+        CHECK(!strcmp(integration_nom_etat(),"DDS_SEUL_COMMANDE"));
+        CHECK(!integration_statut()->commande_courante && !integration_statut()->derniere_valide);
+        CHECK(!integration_calibration()->approuve && integration_statut()->revision==revision);
+    }
+    signal_config_t s=*signaux_lire(9);s.frequence_hz++;
+    CHECK(integration_modifier(9,s,0)==GF_OK);CHECK(!fake.actif);
+    CHECK(integration_activer()==GF_OK);CHECK(integration_arreter()==GF_OK);CHECK(!fake.actif);
+    for(unsigned fail=1;fail<=3;fail++) {
+        vierge();boot(false);fake.echec=fail;
+        CHECK(integration_activer()==GF_IO);CHECK(integration_statut()->etat==SYS_DEFAUT);
+        CHECK(!integration_statut()->commande_courante && !integration_statut()->derniere_valide);
+        CHECK(integration_activer()==GF_CONFLIT);
+        fake.echec=0;CHECK(integration_arreter()==GF_OK);CHECK(integration_activer()==GF_OK);
+    }
+    /* DDS seul ne requiert pas des EPOT, mais exige tous les callbacks DDS. */
+    vierge();integration_backend_t hw=backend();hw.epots=false;hw.gain=NULL;hw.offset=NULL;
+    memset(&fake,0,sizeof(fake));integration_initialiser_avec(hw,io());
+    CHECK(integration_choisir(0)==GF_OK);CHECK(integration_activer()==GF_OK);
+    CHECK(integration_arreter()==GF_OK);
+    hw.dds=false;integration_initialiser_avec(hw,io());CHECK(integration_choisir(0)==GF_OK);
+    CHECK(integration_activer()==GF_ABSENT);
+    hw.dds=true;hw.activer=NULL;integration_initialiser_avec(hw,io());CHECK(integration_choisir(0)==GF_OK);
+    CHECK(integration_activer()==GF_ABSENT);
+    /* Importer un profil arrete le DDS ; une vraie commande complete le remplace. */
+    vierge();boot(false);CHECK(integration_activer()==GF_OK);
+    calibration_t p=fixture();uint8_t image[CAL_IMAGE_SIZE];CHECK(calibration_encoder(&p,image)==GF_OK);
+    CHECK(integration_importer_calibration(image)==GF_OK);CHECK(!fake.actif);
+    memset(&fake,0,sizeof(fake));CHECK(integration_activer()==GF_OK);
+    CHECK(!strcmp(fake.sequence,"SDGOE") && integration_statut()->commande_courante);
+    signal_config_t derniere=integration_statut()->derniere;
+    CHECK(integration_effacer_calibration()==GF_OK);CHECK(!fake.actif);
+    CHECK(integration_activer()==GF_OK);CHECK(!integration_statut()->commande_courante);
+    CHECK(integration_statut()->derniere_valide && signaux_egaux(derniere,integration_statut()->derniere));
+    /* Pas de repli DDS pour contourner la plage d'un profil existant. */
+    CHECK(integration_importer_calibration(image)==GF_OK);s=*signaux_lire(0);
+    s.amplitude_mvpp=20000;s.offset_mv=10000;CHECK(integration_modifier(0,s,0)==GF_OK);
+    memset(&fake,0,sizeof(fake));CHECK(integration_activer()==GF_PLAGE);CHECK(fake.appels==0);
+    /* Un profil valide ne permet pas d'ignorer un EPOT absent. */
+    hw=backend();hw.epots=false;integration_initialiser_avec(hw,io());
+    CHECK(integration_importer_calibration(image)==GF_OK);CHECK(integration_choisir(0)==GF_OK);
+    memset(&fake,0,sizeof(fake));CHECK(integration_activer()==GF_ABSENT);CHECK(fake.appels==0);
+    puts("PASS DDS seul : 10 presets sans profil, aucun EPOT, transitions, pannes et limites calibrees conservees.");
+}
 static void coordination(void) {
-    vierge();boot(false);CHECK(integration_activer()==GF_NON_CALIBRE);CHECK(fake.appels==0);
+    vierge();boot(false);CHECK(integration_activer()==GF_OK);CHECK(!strcmp(fake.sequence,"SDE"));
     for(unsigned fail=1;fail<=5;fail++) {
         vierge();boot(true);fake.echec=fail;CHECK(integration_activer()==GF_IO);
         CHECK(integration_statut()->etat==SYS_DEFAUT);CHECK(!integration_statut()->commande_courante);
@@ -179,6 +229,9 @@ static void drain(char *b,size_t capacite) {
 }
 static void protocole(void) {
     vierge();boot(false);usb_service_initialiser();usb_commande_t c;char b[8193];
+    feed("$ON#$STATE?#",0);drain(b,sizeof(b));
+    CHECK(strstr(b,"$OK:ON_COMMANDE:") && strstr(b,"$STATE:DDS_SEUL_COMMANDE:"));
+    feed("$OFF#",1);drain(b,sizeof(b));CHECK(!fake.actif);
     const char *bad[]={"","$#","$0?#","$101?#","$1:SIN:0:0:1#","$1:X:1000:0:1000#",
         "$1:SIN:1000:10001:1000#","$1:SIN:1000:0:12000001#","$1:SIN:1000:0:-1#",
         "$1:SIN:1000:0:1:2#","$1:SIN::0:1#","$1:SIN:1000:0:1#x","$1:SIN:1000:0:1 #",
@@ -225,6 +278,6 @@ static void protocole(void) {
 }
 int main(void) {
     CHECK(gf_crc32((const uint8_t *)"123456789",9)==UINT32_C(0xCBF43926));
-    catalogue();conversion();persistance();coordination();protocole();
+    catalogue();conversion();persistance();dds_sans_calibration();coordination();protocole();
     printf("RESULTAT : %u assertions satisfaites. Tests logiciels uniquement.\n",checks);return 0;
 }

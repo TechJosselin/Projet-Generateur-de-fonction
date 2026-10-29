@@ -14,6 +14,9 @@ const calibration_t *integration_calibration(void){return &profil;}
 const digital_statut_t *integration_digital_statut(unsigned c){return c<2?&digitales[c]:NULL;}
 const char *integration_nom_etat(void) {
     static const char *const noms[]={"NON_INITIALISE","ARRET_COMMANDE","PRET","ACTIF_COMMANDE","NON_CALIBRE","DEFAUT"};
+    /* ACTIF sans commande complete : seule la forme/frequence DDS est appliquee.
+     * commande_courante ne doit jamais certifier l'amplitude/offset dans ce mode. */
+    if(etat.etat==SYS_ACTIF_COMMANDE && !etat.commande_courante)return "DDS_SEUL_COMMANDE";
     return noms[etat.etat];
 }
 bool integration_i2c_disponible(void){return hw.i2c;}
@@ -43,6 +46,7 @@ static gf_result_t arreter_analogique(void) {
     etat_arrete();return resultat(GF_OK,"ARRET_DDS");
 }
 static gf_result_t arreter_si_necessaire(void) {
+    /* Inclut le mode DDS seul, qui reste un DDS actif a arreter. */
     if(etat.etat==SYS_ACTIF_COMMANDE || etat.etat==SYS_DEFAUT)return arreter_analogique();
     return GF_OK;
 }
@@ -116,23 +120,39 @@ gf_result_t integration_activer(void) {
     const signal_config_t *s=etat.selection>=0?signaux_lire((size_t)etat.selection):NULL;
     if(!s)return resultat(GF_SELECTION,"SELECTION");
     analogique_commande_t codes;gf_result_t r=analogique_convertir(&profil,s,&codes);
-    if(r!=GF_OK)return resultat(r,"CALIBRATION");
-    if(!hw.dds || !hw.epots || !hw.arreter || !hw.dds_configurer || !hw.gain || !hw.offset || !hw.activer)
-        return resultat(GF_ABSENT,"MATERIEL");
-    if(profil.stabilisation_ms && !hw.attendre_ms)return resultat(GF_NON_SUPPORTE,"STABILISATION");
+    const bool dds_seul=r==GF_NON_CALIBRE;
+    /* Un profil absent ne bloque plus le DDS. En revanche, une plage refusee,
+     * un profil invalide ou une forme non qualifiee ne passent PAS en mode DDS.
+     * Aucune loi gain/offset n'est inventee et aucun profil n'est approuve ici. */
+    if(r!=GF_OK && !dds_seul)return resultat(r,"CALIBRATION");
+    if(!hw.dds || !hw.arreter || !hw.dds_configurer || !hw.activer)
+        return resultat(GF_ABSENT,"MATERIEL_DDS");
+    if(!dds_seul && (!hw.epots || !hw.gain || !hw.offset))
+        return resultat(GF_ABSENT,"MATERIEL_EPOT");
+    if(!dds_seul && profil.stabilisation_ms && !hw.attendre_ms)
+        return resultat(GF_NON_SUPPORTE,"STABILISATION");
     r=arreter_analogique();if(r!=GF_OK)return r;
     r=hw.dds_configurer(hw.ctx,s);if(r!=GF_OK)return defaut(r,"DDS_CONFIG");
-    if(profil.gain_avant_offset) {
-        r=hw.gain(hw.ctx,codes.gain);if(r!=GF_OK)return defaut(r,"GAIN");
-        r=hw.offset(hw.ctx,codes.offset);if(r!=GF_OK)return defaut(r,"OFFSET");
-    } else {
-        r=hw.offset(hw.ctx,codes.offset);if(r!=GF_OK)return defaut(r,"OFFSET");
-        r=hw.gain(hw.ctx,codes.gain);if(r!=GF_OK)return defaut(r,"GAIN");
+    if(!dds_seul) {
+        if(profil.gain_avant_offset) {
+            r=hw.gain(hw.ctx,codes.gain);if(r!=GF_OK)return defaut(r,"GAIN");
+            r=hw.offset(hw.ctx,codes.offset);if(r!=GF_OK)return defaut(r,"OFFSET");
+        } else {
+            r=hw.offset(hw.ctx,codes.offset);if(r!=GF_OK)return defaut(r,"OFFSET");
+            r=hw.gain(hw.ctx,codes.gain);if(r!=GF_OK)return defaut(r,"GAIN");
+        }
+        if(profil.stabilisation_ms)hw.attendre_ms(hw.ctx,profil.stabilisation_ms);
     }
-    if(profil.stabilisation_ms)hw.attendre_ms(hw.ctx,profil.stabilisation_ms);
     r=hw.activer(hw.ctx);if(r!=GF_OK)return defaut(r,"ACTIVATION");
+    etat.etat=SYS_ACTIF_COMMANDE;
+    if(dds_seul) {
+        /* Les EPOT restent inchanges. L'etat ON ne prouve ni VOUT ni son amplitude.
+         * Conserver la derniere commande COMPLETE, sans la remplacer par ce test. */
+        etat.commande_courante=false;
+        return resultat(GF_OK,"DDS_SEUL_NON_CALIBRE");
+    }
     etat.derniere=*s;etat.derniere_valide=true;etat.codes=codes;
-    etat.commande_courante=true;etat.etat=SYS_ACTIF_COMMANDE;
+    etat.commande_courante=true;
     return resultat(GF_OK,"COMMANDE_COMPLETE");
 }
 gf_result_t integration_modifier(size_t i,signal_config_t s,uint32_t attendu) {
