@@ -65,16 +65,52 @@ de son nom : vérifier le SHA du commit associé. Les artefacts CI expirent apr�
 
 ## Utilisation
 
-L'encodeur navigue, le clic valide et l'appui long demande l'arrêt de toutes les
-sorties puis revient en arrière. Sélectionner un signal **ne l'active pas**.
-L'activation se fait dans **SORTIE / ARRET**, après confirmation. Modifier un
-signal actif impose d'abord son arrêt et ne le réactive pas automatiquement.
-L'aperçu est théorique, pas une acquisition de VOUT.
+### Encodeur et écran : sélection, activation et consultation uniquement
 
-Chaque modification validée demande une sauvegarde différée de 300 ms. Les crans
-dans un brouillon ne provoquent pas d'écriture EEPROM. `RAM*` indique des données
-non encore confirmées en mémoire. Après un échec, `SAUVER MAINTENANT` redemande un
-essai ; le firmware ne réécrit pas en boucle une mémoire défaillante.
+L'appareil démarre directement sur la **liste des signaux**, sans activer de sortie.
+L'affichage conserve trois lignes en grande police et le défilement horizontal de
+la ligne pointée.
+
+- **Tourner** : parcourir les signaux, sans modifier leurs paramètres ni la sortie active.
+- **Cliquer sur un signal** : le sélectionner et l'activer immédiatement dans la même
+  action, sans menu « Sortie / Arrêt » ni confirmation supplémentaire. La fiche affiche
+  sa fréquence (`F`), son amplitude crête-à-crête (`A`, Vpp) et son offset (`O`).
+- **Depuis la fiche** : cliquer revient à la liste sans arrêter la sortie ; tourner
+  revient directement au choix suivant/précédent. Un clic applique ensuite ce choix.
+- **Appui long, sur n'importe quel écran** : demander l'arrêt de toutes les sorties
+  puis revenir à la liste. Un échec d'arrêt est affiché, jamais présenté comme réussi.
+
+Aucun type, fréquence, amplitude, offset ou paramètre numérique n'est éditable depuis
+l'encodeur. Il n'y a plus de duplication, suppression, restauration usine, chargement
+EEPROM, effacement de profil ou réglage de pas dans le menu. Les configurations sont
+modifiables **uniquement par USB**. Les commandes de diagnostic restent disponibles
+par USB (`$STATE?#`, `$DIG?#`, `$CAL?#`).
+
+Le bandeau indique le signal commandé ON, l'arrêt commandé OFF ou un défaut ; ce ne
+sont pas des mesures de VOUT. L'activation conserve les contrôles de calibration, de
+plage et de matériel. Un refus affiche le motif au lieu d'annoncer une sortie active.
+
+### Configuration USB selon le cahier des charges
+
+Écriture : `$N:TYPE:AMPLITUDE:OFFSET:FREQUENCE#`, avec `TYPE` égal à `SIN`, `TRI`
+ou `CAR`, amplitude en mV crête-à-crête, offset en mV et fréquence en Hz.
+Par exemple, signal 1 sinus, 1 Vpp, offset nul et 10 kHz :
+
+```text
+$1:SIN:1000:+0:10000#
+```
+
+Lire ce signal : `$1?#`. Lire tous les signaux : `$?#`. Les réponses de lecture
+reprennent le format d'écriture. Les commandes étendues déjà présentes restent
+inchangées ; notamment `$SELECT:N#` puis `$ON#` pour une commande de sortie depuis
+le PC. Le raccourci sélection + activation concerne le clic local.
+
+Chaque modification USB validée demande une sauvegarde différée de 300 ms.
+Parcourir, sélectionner ou activer un signal ne réécrit pas ses paramètres en EEPROM.
+Après un échec de sauvegarde, `$SAVE#` redemande un essai ; le firmware ne réécrit pas
+en boucle une mémoire défaillante. Modifier par USB un signal actif impose d'abord
+son arrêt et ne le réactive pas automatiquement : le sélectionner à nouveau pour
+appliquer les nouvelles valeurs.
 
 Fermer le moniteur série avant d'utiliser le client PC ; remplacer COM7 par le port
 réel (`/dev/ttyACM0` sous Linux, par exemple) :
