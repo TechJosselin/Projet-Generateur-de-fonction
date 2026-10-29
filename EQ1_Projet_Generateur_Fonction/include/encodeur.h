@@ -1,30 +1,25 @@
-/*===============================================================================================
-CFPT - Projet : Générateur de fonction
-Fichier      : encodeur.h
-Description  : Gestion de l'encodeur rotatif PEC12R sous interruption GPIO
-===============================================================================================*/
-
 #ifndef ENCODEUR_H
 #define ENCODEUR_H
 
-#include <stdbool.h>
-#include <stdint.h>
+#include "hardware_config.h"
 
-#include "esp_err.h"
-#include "driver/gpio.h"
+/* Le brochage reste centralise dans hardware_config.h. */
+#define PIN_ENC_A   SYSTEM_ENCODER_A_GPIO
+#define PIN_ENC_B   SYSTEM_ENCODER_B_GPIO
+#define PIN_ENC_SW  SYSTEM_ENCODER_BUTTON_GPIO
 
-esp_err_t Encodeur_Init(gpio_num_t pin_a,
-                        gpio_num_t pin_b,
-                        gpio_num_t pin_button,
-                        uint8_t edges_per_step,
-                        bool reverse_direction);
+#define INVERSION_SENS_ENCODEUR SYSTEM_ENCODER_REVERSE_DIRECTION
 
-esp_err_t Encodeur_Deinit(void);
+typedef enum
+{
+    UI_AUCUN = 0,
+    UI_ROTATION_PLUS,
+    UI_ROTATION_MOINS,
+    UI_CLIC,
+    UI_APPUI_LONG
+} evenement_ui_t;
 
-int32_t Encodeur_GetCounter(void);
-esp_err_t Encodeur_SetCounter(int32_t value);
-
-bool Encodeur_IsInitialized(void);
-bool Encodeur_IsButtonPressed(void);
+void encodeur_initialiser(void);
+evenement_ui_t encodeur_lire_evenement(void);
 
 #endif /* ENCODEUR_H */

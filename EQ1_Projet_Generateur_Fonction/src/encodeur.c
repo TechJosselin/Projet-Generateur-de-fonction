@@ -1,303 +1,237 @@
-/*===============================================================================================
-CFPT - Projet : Générateur de fonction
-Fichier      : encodeur.c
-Description  : Décodage du PEC12R par polling périodique des GPIO
-===============================================================================================*/
-
 #include "encodeur.h"
 
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+#include "esp_attr.h"
+#include "esp_err.h"
 #include "esp_timer.h"
 
-/*===============================================================================================
-CONSTANTES LOCALES
-===============================================================================================*/
-#define ENCODEUR_POLL_PERIOD_US                  1000ULL
-#define ENCODEUR_EDGE_DEBOUNCE_US                3000LL
+#define REBOND_BOUTON_US 30000LL
+#define APPUI_LONG_US    800000LL
 
-/*===============================================================================================
-VARIABLES LOCALES
-===============================================================================================*/
-static gpio_num_t gPinA = GPIO_NUM_NC;
-static gpio_num_t gPinB = GPIO_NUM_NC;
-static gpio_num_t gPinButton = GPIO_NUM_NC;
-
-static volatile int32_t gCounter = 0;
-static volatile int8_t gPulseAccumulator = 0;
-
-static uint8_t gEdgesPerStep = 1U;
-static bool gReverseDirection = false;
-static bool gEncodeurInitialized = false;
-
-static uint8_t gLastAState = 1U;
-static int64_t gLastAcceptedEdgeUs = 0LL;
-static esp_timer_handle_t gPollTimer = NULL;
-
-static portMUX_TYPE gEncodeurMux = portMUX_INITIALIZER_UNLOCKED;
-
-/*===============================================================================================
-PROTOTYPES DE FONCTIONS LOCALES
-===============================================================================================*/
-static void Encodeur_PollTimerCallback(void *arg);
-static void Encodeur_ResetState(void);
-
-/*===============================================================================================
-FONCTIONS LOCALES
-===============================================================================================*/
 /*
- * Le PEC12R est lu directement toutes les 1 ms.
- * On compte uniquement le front montant de A et on lit B pour connaître le sens.
- * Cette approche évite toute dépendance au service d'interruption GPIO et permet
- * de vérifier directement les niveaux réellement présents sur GPIO1 / GPIO2.
+ * Decodeur quadrature robuste pour le PEC12R.
+ *
+ * Principe important : on ne genere PAS un evenement pendant le mouvement.
+ * Un cran n'est valide que lorsque l'encodeur a quitte sa position de detente,
+ * effectue une sequence quadrature complete, puis est revenu sur cette meme
+ * position de detente.
+ *
+ * Cela elimine les faux aller/retour provoques par le rebond mecanique autour
+ * d'un cran.
  */
-static void Encodeur_PollTimerCallback(void *arg)
+static const int8_t transitions[16] =
 {
-    (void)arg;
+     0, +1, -1,  0,
+    -1,  0,  0, +1,
+    +1,  0,  0, -1,
+     0, -1, +1,  0
+};
 
-    if (!gEncodeurInitialized)
+static QueueHandle_t queue_ab;
+static uint8_t ab_precedent;
+static uint8_t etat_detente;
+static int8_t quadrature_somme;
+static int rotation_en_attente;
+
+static bool bouton_brut_precedent;
+static bool bouton_stable;
+static bool appui_long_declenche;
+static int64_t heure_rebond;
+static int64_t heure_appui;
+
+static uint8_t lire_ab(void)
+{
+    return (uint8_t)((gpio_get_level(PIN_ENC_A) << 1) |
+                     gpio_get_level(PIN_ENC_B));
+}
+
+static void IRAM_ATTR interruption_ab(void *unused)
+{
+    (void)unused;
+
+    const uint8_t ab = (uint8_t)((gpio_get_level(PIN_ENC_A) << 1) |
+                                 gpio_get_level(PIN_ENC_B));
+
+    BaseType_t reveil = pdFALSE;
+    (void)xQueueSendFromISR(queue_ab, &ab, &reveil);
+
+    if (reveil == pdTRUE)
+    {
+        portYIELD_FROM_ISR();
+    }
+}
+
+void encodeur_initialiser(void)
+{
+    queue_ab = xQueueCreate(64, sizeof(uint8_t));
+    configASSERT(queue_ab != NULL);
+
+    const gpio_config_t rotation =
+    {
+        .pin_bit_mask = (1ULL << PIN_ENC_A) | (1ULL << PIN_ENC_B),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_ANYEDGE
+    };
+
+    const gpio_config_t clic =
+    {
+        .pin_bit_mask = 1ULL << PIN_ENC_SW,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE
+    };
+
+    ESP_ERROR_CHECK(gpio_config(&rotation));
+    ESP_ERROR_CHECK(gpio_config(&clic));
+
+    /*
+     * Au demarrage l'encodeur est normalement pose sur un cran.
+     * On prend donc son etat A/B courant comme position de detente de reference.
+     * Cette methode fonctionne que la detente electrique soit 00 ou 11.
+     */
+    etat_detente = lire_ab();
+    ab_precedent = etat_detente;
+    quadrature_somme = 0;
+    rotation_en_attente = 0;
+
+    bouton_brut_precedent = (gpio_get_level(PIN_ENC_SW) == 0);
+    bouton_stable = bouton_brut_precedent;
+    appui_long_declenche = false;
+    heure_rebond = esp_timer_get_time();
+    heure_appui = heure_rebond;
+
+    const esp_err_t isr_err = gpio_install_isr_service(0);
+    if ((isr_err != ESP_OK) && (isr_err != ESP_ERR_INVALID_STATE))
+    {
+        ESP_ERROR_CHECK(isr_err);
+    }
+
+    ESP_ERROR_CHECK(gpio_isr_handler_add(PIN_ENC_A, interruption_ab, NULL));
+    ESP_ERROR_CHECK(gpio_isr_handler_add(PIN_ENC_B, interruption_ab, NULL));
+}
+
+static void traiter_transition(uint8_t ab)
+{
+    if (ab == ab_precedent)
     {
         return;
     }
 
-    const uint8_t a = (uint8_t)gpio_get_level(gPinA);
-    const uint8_t b = (uint8_t)gpio_get_level(gPinB);
-    const int64_t now_us = esp_timer_get_time();
+    const int8_t pas = transitions[(ab_precedent << 2) | ab];
 
-    /* Front montant A détecté. */
-    if ((gLastAState == 0U) && (a != 0U))
+    if (pas == 0)
     {
-        if ((now_us - gLastAcceptedEdgeUs) >= ENCODEUR_EDGE_DEBOUNCE_US)
+        /*
+         * Deux bits ont change d'un coup : sequence invalide ou fronts perdus.
+         * On annule le mouvement en cours plutot que de risquer un faux cran.
+         */
+        quadrature_somme = 0;
+    }
+    else
+    {
+        quadrature_somme = (int8_t)(quadrature_somme + pas);
+    }
+
+    ab_precedent = ab;
+
+    /*
+     * Un evenement UI n'est emis qu'au RETOUR sur la position de detente.
+     * Une sequence complete vaut +/-4 transitions valides.
+     * Les rebonds partiels autour du cran reviennent avec une somme proche de 0
+     * et ne provoquent donc aucun deplacement du menu.
+     */
+    if (ab == etat_detente)
+    {
+        if (quadrature_somme >= 4)
         {
-            int8_t direction = (b != 0U) ? 1 : -1;
+#if INVERSION_SENS_ENCODEUR
+            rotation_en_attente--;
+#else
+            rotation_en_attente++;
+#endif
+        }
+        else if (quadrature_somme <= -4)
+        {
+#if INVERSION_SENS_ENCODEUR
+            rotation_en_attente++;
+#else
+            rotation_en_attente--;
+#endif
+        }
 
-            if (gReverseDirection)
-            {
-                direction = (int8_t)-direction;
-            }
+        quadrature_somme = 0;
+    }
+}
 
-            portENTER_CRITICAL(&gEncodeurMux);
+static void traiter_file_rotation(TickType_t attente)
+{
+    uint8_t ab;
 
-            gPulseAccumulator = (int8_t)(gPulseAccumulator + direction);
+    if (xQueueReceive(queue_ab, &ab, attente) != pdTRUE)
+    {
+        return;
+    }
 
-            if (gPulseAccumulator >= (int8_t)gEdgesPerStep)
-            {
-                gCounter++;
-                gPulseAccumulator = 0;
-            }
-            else if (gPulseAccumulator <= -(int8_t)gEdgesPerStep)
-            {
-                gCounter--;
-                gPulseAccumulator = 0;
-            }
+    traiter_transition(ab);
 
-            portEXIT_CRITICAL(&gEncodeurMux);
+    while (xQueueReceive(queue_ab, &ab, 0) == pdTRUE)
+    {
+        traiter_transition(ab);
+    }
+}
 
-            gLastAcceptedEdgeUs = now_us;
+evenement_ui_t encodeur_lire_evenement(void)
+{
+    /* Attente courte pour eviter une boucle CPU a 100 %. */
+    traiter_file_rotation(pdMS_TO_TICKS(10));
+
+    const bool brut = (gpio_get_level(PIN_ENC_SW) == 0);
+    const int64_t maintenant = esp_timer_get_time();
+
+    if (brut != bouton_brut_precedent)
+    {
+        bouton_brut_precedent = brut;
+        heure_rebond = maintenant;
+    }
+
+    if ((brut != bouton_stable) &&
+        ((maintenant - heure_rebond) >= REBOND_BOUTON_US))
+    {
+        bouton_stable = brut;
+
+        if (bouton_stable)
+        {
+            heure_appui = maintenant;
+            appui_long_declenche = false;
+        }
+        else if (!appui_long_declenche)
+        {
+            return UI_CLIC;
         }
     }
 
-    gLastAState = a;
+    if (bouton_stable && !appui_long_declenche &&
+        ((maintenant - heure_appui) >= APPUI_LONG_US))
+    {
+        appui_long_declenche = true;
+        return UI_APPUI_LONG;
+    }
+
+    if (rotation_en_attente != 0)
+    {
+        const int sens = (rotation_en_attente > 0) ? +1 : -1;
+        rotation_en_attente -= sens;
+        return (sens > 0) ? UI_ROTATION_PLUS : UI_ROTATION_MOINS;
+    }
+
+    return UI_AUCUN;
 }
-
-static void Encodeur_ResetState(void)
-{
-    gPinA = GPIO_NUM_NC;
-    gPinB = GPIO_NUM_NC;
-    gPinButton = GPIO_NUM_NC;
-    gEdgesPerStep = 1U;
-    gReverseDirection = false;
-    gEncodeurInitialized = false;
-    gLastAState = 1U;
-    gLastAcceptedEdgeUs = 0LL;
-
-    portENTER_CRITICAL(&gEncodeurMux);
-    gCounter = 0;
-    gPulseAccumulator = 0;
-    portEXIT_CRITICAL(&gEncodeurMux);
-}
-
-/*===============================================================================================
-FONCTIONS PUBLIQUES
-===============================================================================================*/
-esp_err_t Encodeur_Init(gpio_num_t pin_a,
-                        gpio_num_t pin_b,
-                        gpio_num_t pin_button,
-                        uint8_t edges_per_step,
-                        bool reverse_direction)
-{
-    esp_err_t err;
-
-    if (gEncodeurInitialized)
-    {
-        return ESP_OK;
-    }
-
-    if (!GPIO_IS_VALID_GPIO(pin_a) ||
-        !GPIO_IS_VALID_GPIO(pin_b) ||
-        !GPIO_IS_VALID_GPIO(pin_button) ||
-        (pin_a == pin_b) ||
-        (pin_a == pin_button) ||
-        (pin_b == pin_button) ||
-        (edges_per_step == 0U))
-    {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    gPinA = pin_a;
-    gPinB = pin_b;
-    gPinButton = pin_button;
-    gEdgesPerStep = edges_per_step;
-    gReverseDirection = reverse_direction;
-
-    const gpio_config_t encoder_config =
-    {
-        .pin_bit_mask = (1ULL << (uint32_t)gPinA) |
-                        (1ULL << (uint32_t)gPinB),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-
-    err = gpio_config(&encoder_config);
-    if (err != ESP_OK)
-    {
-        Encodeur_ResetState();
-        return err;
-    }
-
-    const gpio_config_t button_config =
-    {
-        .pin_bit_mask = (1ULL << (uint32_t)gPinButton),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-
-    err = gpio_config(&button_config);
-    if (err != ESP_OK)
-    {
-        Encodeur_ResetState();
-        return err;
-    }
-
-    portENTER_CRITICAL(&gEncodeurMux);
-    gCounter = 0;
-    gPulseAccumulator = 0;
-    portEXIT_CRITICAL(&gEncodeurMux);
-
-    gLastAState = (uint8_t)gpio_get_level(gPinA);
-    gLastAcceptedEdgeUs = esp_timer_get_time() - ENCODEUR_EDGE_DEBOUNCE_US;
-
-    const esp_timer_create_args_t timer_args =
-    {
-        .callback = Encodeur_PollTimerCallback,
-        .arg = NULL,
-        .dispatch_method = ESP_TIMER_TASK,
-        .name = "encoder_poll",
-        .skip_unhandled_events = true,
-    };
-
-    err = esp_timer_create(&timer_args, &gPollTimer);
-    if (err != ESP_OK)
-    {
-        Encodeur_ResetState();
-        return err;
-    }
-
-    gEncodeurInitialized = true;
-
-    err = esp_timer_start_periodic(gPollTimer, ENCODEUR_POLL_PERIOD_US);
-    if (err != ESP_OK)
-    {
-        gEncodeurInitialized = false;
-        esp_timer_delete(gPollTimer);
-        gPollTimer = NULL;
-        Encodeur_ResetState();
-        return err;
-    }
-
-    return ESP_OK;
-}
-
-esp_err_t Encodeur_Deinit(void)
-{
-    esp_err_t first_error = ESP_OK;
-
-    if (!gEncodeurInitialized)
-    {
-        return ESP_OK;
-    }
-
-    gEncodeurInitialized = false;
-
-    if (gPollTimer != NULL)
-    {
-        esp_err_t err = esp_timer_stop(gPollTimer);
-        if ((err != ESP_OK) && (err != ESP_ERR_INVALID_STATE))
-        {
-            first_error = err;
-        }
-
-        err = esp_timer_delete(gPollTimer);
-        if ((err != ESP_OK) && (first_error == ESP_OK))
-        {
-            first_error = err;
-        }
-
-        gPollTimer = NULL;
-    }
-
-    gpio_reset_pin(gPinA);
-    gpio_reset_pin(gPinB);
-    gpio_reset_pin(gPinButton);
-
-    Encodeur_ResetState();
-    return first_error;
-}
-
-int32_t Encodeur_GetCounter(void)
-{
-    int32_t counter;
-
-    portENTER_CRITICAL(&gEncodeurMux);
-    counter = gCounter;
-    portEXIT_CRITICAL(&gEncodeurMux);
-
-    return counter;
-}
-
-esp_err_t Encodeur_SetCounter(int32_t value)
-{
-    if (!gEncodeurInitialized)
-    {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    portENTER_CRITICAL(&gEncodeurMux);
-    gCounter = value;
-    gPulseAccumulator = 0;
-    portEXIT_CRITICAL(&gEncodeurMux);
-
-    return ESP_OK;
-}
-
-bool Encodeur_IsInitialized(void)
-{
-    return gEncodeurInitialized;
-}
-
-bool Encodeur_IsButtonPressed(void)
-{
-    if (!gEncodeurInitialized)
-    {
-        return false;
-    }
-
-    return gpio_get_level(gPinButton) == 0;
-}
-
-/*===============================================================================================
-FIN DU FICHIER
-===============================================================================================*/
