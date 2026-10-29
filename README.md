@@ -1,103 +1,107 @@
-# Générateur de fonctions — Équipe 1
+# Générateur de fonctions — CFPT Équipe 1
 
-Firmware C / ESP-IDF pour Seeed Studio XIAO ESP32-C6.
+Firmware C / ESP-IDF pour **Seeed Studio XIAO ESP32-C6**. Branche de finalisation :
+`finalisation/p02-p11`, issue de `finalisation/p01-socle` au commit `aae8066`.
+Les branches `main` et `integration/full-system` ne sont pas remplacées.
 
-- [Plan de finalisation P01–P11](docs/PLAN_FINALISATION_PROJET.md)
-- [Suivi d'exécution et preuves P01](docs/P01_SUIVI.md)
+## État de livraison
 
-Le plan est conservé tel que fourni, avec ses cases initiales. Le suivi P01 indique l'avancement réellement vérifié et prévaut sur ce statut initial.
+Catalogue, commande coordonnée, conversion par profil, stockage EEPROM à deux
+banques, USB, menus, pilotes et tests sont implémentés. Le bilan des preuves et
+les tâches matérielles ouvertes sont dans [VALIDATION.md](docs/VALIDATION.md).
 
-## Branche de travail
+**Aucun profil analogique réel n'est livré. L'activation normale est donc refusée
+avec `NON_CALIBRE` tant qu'un profil mesuré n'a pas été importé.** Les deux sorties
+numériques restent non affectées (`-1`) jusqu'à confirmation de leur fonction et
+de leur câblage. Ce n'est pas une version certifiée du produit physique.
 
-`finalisation/p01-socle` part de `integration/full-system` au commit
-`fe47f86fe5af626a0da5a1c0aa1b16a198df4b62`. P01 ajoute la documentation,
-les tests et la construction automatique, sans réécrire la logique métier.
-`main` et les autres branches ne sont pas fusionnées automatiquement.
+Un arrêt du DDS ne garantit **ni VOUT = 0 V, ni une sortie déconnectée**. Ne pas
+brancher une charge sensible avant vérification de l'étage analogique et du boot.
 
-Pour travailler dans un nouveau répertoire sans écraser un travail local :
+## Reconstruction
 
-```sh
-git clone --branch finalisation/p01-socle https://github.com/TechJosselin/Projet-Generateur-de-fonction.git Generateur-P01
-cd Generateur-P01
-```
-
-Avant de changer de branche dans une copie existante, examiner `git status`
-et conserver ses modifications. Aucun outil distant ne vérifie le contenu
-non poussé du poste de développement.
-
-## Tests natifs, sans carte ni PlatformIO
-
-Pré requis : Python 3.10 ou supérieur, GCC ou Clang. La CI utilise Python
-3.11.9 sur Ubuntu 24.04. Le script utilise uniquement la bibliothèque standard.
-
-Depuis la racine du dépôt :
+Utiliser Python 3.11.9 (version CI), Git et GCC pour les tests natifs. Depuis la
+racine du dépôt, avec un répertoire de travail propre ou les modifications locales
+préalablement sauvegardées :
 
 ```sh
-python tools/run_native_tests.py
-python tools/run_native_tests.py --sanitize
-```
-
-La deuxième commande active AddressSanitizer et UndefinedBehaviorSanitizer
-et requiert leurs bibliothèques sur l'hôte. Aucun repli silencieux n'est
-fait si elles sont indisponibles. `--cc clang` permet de sélectionner Clang.
-
-Le script compile les **sources courantes** `src/signaux.c` et
-`src/usb_protocol.c`, pas des copies figées dans le dossier de tests.
-Il produit `build/native/tests.log` et `build/native/results.json`, avec
-empreintes SHA-256, versions, commandes et résultat. Un échec de compilation
-ou d'assertion retourne un code de sortie non nul.
-
-Le banc P01 couvre les dix presets exacts, la modification RAM, la capacité
-100, la suppression, les bornes, le formatage et 23 trames invalides.
-Il caractérise aussi les limites existantes. Il ne valide ni les pilotes,
-ni un échange USB physique, ni les tensions sur VOUT. Ces tests devront
-évoluer avec les phases fonctionnelles sans transformer les limitations
-actuelles en exigences définitives.
-
-## Construction ESP32-C6
-
-Créer un environnement Python isolé et installer la version de PlatformIO Core
-indiquée dans `requirements-build.txt` :
-
-```sh
+git fetch origin
+git switch finalisation/p02-p11
 python -m venv .venv
-. .venv/bin/activate
-python -m pip install -r requirements-build.txt
+```
+
+Activer `.venv` : `source .venv/bin/activate` sous Linux/macOS ou
+`.venv\Scripts\Activate.ps1` sous PowerShell. Ensuite :
+
+```sh
+python -m pip install -r requirements-build.txt -r requirements-pc.txt
+python tools/run_native_tests.py --sanitize
 python -m platformio run -d EQ1_Projet_Generateur_Fonction -e seeed_xiao_esp32c6
 ```
 
-Sous PowerShell, remplacer la ligne d'activation par
-`.venv\Scripts\Activate.ps1`. L'installation initiale requiert un accès
-Internet pour les paquets PlatformIO, la chaîne RISC-V et ESP-IDF.
+Sous un hôte sans ASan/UBSan, lancer le runner sans `--sanitize` ; cela n'équivaut
+pas au contrôle instrumenté exécuté en CI. Les versions principales sont fixées :
+PlatformIO Core 6.2.0, plateforme espressif32 8.0.0, ESP-IDF 6.1.0. Les dépendances
+Python transitives ne rendent pas le build totalement hermétique ; consulter les
+journaux de résolution. Aucune installation PlatformIO globale n'est nécessaire.
 
-Les versions réellement résolues et l'état de validation sont consignés dans
-[le suivi P01](docs/P01_SUIVI.md). Une configuration déclarée n'est pas une
-preuve de compilation : consulter le journal associé au commit.
+**Migration depuis P01 :** la console USB a été désactivée au profit du protocole.
+Un ancien `sdkconfig` / `sdkconfig.seeed_xiao_esp32c6` généré localement peut
+supplanter `sdkconfig.defaults`. Conserver les éventuelles personnalisations puis
+repartir d'une copie propre de cette branche, ou supprimer seulement les fichiers
+sdkconfig générés et `.pio` dans cette copie. Ne pas supprimer `sdkconfig.defaults`.
+La configuration finale doit avoir `CONFIG_ESP_CONSOLE_NONE=y`, pas de console
+secondaire et une pile de tâche principale de 8192 octets.
 
-Sur un poste relié à la carte, après validation du montage :
+Flash, après vérification du câblage et avec VOUT sans charge sensible :
 
 ```sh
 python -m platformio run -d EQ1_Projet_Generateur_Fonction -e seeed_xiao_esp32c6 -t upload
-python -m platformio device monitor -d EQ1_Projet_Generateur_Fonction -e seeed_xiao_esp32c6
 ```
 
-Ces commandes ne sont pas des tests matériels déjà réalisés dans P01.
+Les binaires, journaux et résultats de tests sont également produits par le workflow
+**Firmware and native tests**. Ne pas flasher un ancien artefact sur la seule base
+de son nom : vérifier le SHA du commit associé. Les artefacts CI expirent après 14 jours.
 
-## Intégration continue
+## Utilisation
 
-`.github/workflows/firmware.yml` contient deux jobs indépendants : tests natifs
-avec analyse mémoire, puis construction du firmware dans un autre job.
-Une défaillance de l'un n'est pas masquée par la réussite de l'autre.
-Les actions sont référencées par SHA et le jeton du workflow est en lecture seule.
+L'encodeur navigue, le clic valide et l'appui long demande l'arrêt de toutes les
+sorties puis revient en arrière. Sélectionner un signal **ne l'active pas**.
+L'activation se fait dans **SORTIE / ARRET**, après confirmation. Modifier un
+signal actif impose d'abord son arrêt et ne le réactive pas automatiquement.
+L'aperçu est théorique, pas une acquisition de VOUT.
 
-Les journaux, versions résolues et fichiers de construction disponibles sont
-conservés dans les artefacts du run pendant 14 jours. Les logs sont recueillis
-même après un échec. Les comptes rendus durables sont dans `docs/`.
+Chaque modification validée demande une sauvegarde différée de 300 ms. Les crans
+dans un brouillon ne provoquent pas d'écriture EEPROM. `RAM*` indique des données
+non encore confirmées en mémoire. Après un échec, `SAUVER MAINTENANT` redemande un
+essai ; le firmware ne réécrit pas en boucle une mémoire défaillante.
 
-## Limites fonctionnelles de la référence
+Fermer le moniteur série avant d'utiliser le client PC ; remplacer COM7 par le port
+réel (`/dev/ttyACM0` sous Linux, par exemple) :
 
-Au départ de P01 : amplitude/offset non appliqués, stockage EEPROM non intégré,
-transport USB non raccordé et sorties numériques non définies. Le menu et le
-parseur existent mais ne suffisent pas à déclarer le générateur terminé.
-Le comportement analogique doit être validé sur VOUT avec le schéma et une
-calibration réels. Voir les phases et dépendances matérielles du plan.
+```sh
+python tools/generateur.py --port COM7 state
+python tools/generateur.py --port COM7 list
+python tools/generateur.py --port COM7 read 3
+python tools/generateur.py --port COM7 write 3 SIN 2000 3000 1000
+python tools/generateur.py --port COM7 off
+```
+
+`write` attend la confirmation de sauvegarde, sauf `--ram-only`, qui supprime
+seulement cette attente côté PC : l'autosauvegarde du firmware reste active.
+L'acquittement `OK:RAM` n'est pas une preuve de persistance.
+
+## Documents et organisation
+
+- [Guide technique](docs/GUIDE_TECHNIQUE.md) : architecture, brochage, stockage,
+  protocole exact, calibration, commandes et dépannage.
+- [Validation et phases](docs/VALIDATION.md) : preuves, matrice EX01–EX10, écarts,
+  procédures et statut des phases P01–P11.
+- [Relevé des dix presets](docs/recette_presets.csv) : valeurs demandées et champs
+  de mesure volontairement vides.
+- [Plan initial](docs/PLAN_FINALISATION_PROJET.md) et [preuve P01](docs/P01_SUIVI.md) :
+  historique conservé ; les anciens statuts initiaux ne décrivent pas l'avancement actuel.
+
+Le dossier `test/native/fakes/` contient uniquement les doubles utilisés sur PC.
+Ils ne sont pas inclus dans la construction matérielle. Les anciens fragments
+`menu_parts/*.inc` ont été remplacés par un menu unique, raccordé au coordinateur.
