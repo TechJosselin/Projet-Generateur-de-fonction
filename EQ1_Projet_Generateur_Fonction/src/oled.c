@@ -101,6 +101,34 @@ void oled_ligne(int l,const char *p,bool inv) {
     if(l<0 || l>=8)return;
     memset(image[l],0,128);oled_texte(l,0,p);if(inv)for(unsigned x=0;x<128;x++)image[l][x]^=255;
 }
+/* Police de la branche menu-oled-3-lignes : colonnes reparties a 1.5x,
+ * lignes doublees. Un glyphe occupe 7 pixels dans une cellule de 9 pixels.
+ * Coordonnees bornees avant les additions, meme pour INT_MIN / INT_MAX. */
+void oled_texte_grand(int x,int y,const char *texte) {
+    if(!texte || x < -7 || x >= 128 || y <= -OLED_GRAND_HAUTEUR || y >= 64)return;
+    while(*texte && x <= 120) {
+        const uint8_t *g=glyphe(*texte++);
+        for(int c=0;c<5;c++) {
+            int debut=(c*3)/2,fin=((c+1)*3)/2;
+            for(int l=0;l<7;l++) {
+                if(!(g[c]&(1U<<l)))continue;
+                for(int dx=debut;dx<fin;dx++)
+                    for(int dy=0;dy<2;dy++)oled_pixel(x+dx,y+l*2+dy);
+            }
+        }
+        x+=OLED_GRAND_PAS_X;
+    }
+}
+void oled_inverser_zone(int x,int y,int largeur,int hauteur) {
+    if(largeur<=0 || hauteur<=0)return;
+    /* Sommes sur 64 bits, puis intersection avec la dalle : travail borne. */
+    int64_t droite=(int64_t)x+largeur,bas=(int64_t)y+hauteur;
+    if(x>=128 || y>=64 || droite<=0 || bas<=0)return;
+    int x0=x<0?0:x,y0=y<0?0:y;
+    int x1=droite>128?128:(int)droite,y1=bas>64?64:(int)bas;
+    for(int py=y0;py<y1;py++)
+        for(int px=x0;px<x1;px++)image[py/8][px]^=(uint8_t)(1U<<(py%8));
+}
 void oled_pixel(int x,int y){if(x>=0 && x<128 && y>=0 && y<64)image[y/8][x]|=(uint8_t)(1U<<(y%8));}
 void oled_segment(int x,int y,int x1,int y1) {
     /* Coordonnees limitees pour borner le travail du traceur. */
