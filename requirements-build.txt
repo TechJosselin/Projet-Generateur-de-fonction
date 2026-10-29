@@ -1,0 +1,2 @@
+# PlatformIO Core used by CI. Platform/toolchain pinning is tracked in P01.
+platformio==6.2.0
