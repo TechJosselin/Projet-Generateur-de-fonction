@@ -1,7 +1,9 @@
 # Correctif du 29 octobre 2026 — DDS sans profil importé
 
-Code et tests : commit `7e24609d91d98a885684982b777ab23c76600756` sur
-`finalisation/p02-p11`.
+Historique : commit `7e24609d91d98a885684982b777ab23c76600756`.
+**Ce document décrit l'ancien correctif DDS seul, désormais repli si les
+EPOT sont absents.** Pour le fonctionnement courant sans profil avec EPOT,
+voir [MODELE_NOMINAL.md](MODELE_NOMINAL.md).
 
 ## Ce qui est corrigé
 

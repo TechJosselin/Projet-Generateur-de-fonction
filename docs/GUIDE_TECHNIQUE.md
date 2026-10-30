@@ -2,7 +2,8 @@
 
 Version de format stockage : GFN2/1. Version profil : CAL1/1. Les valeurs électriques
 réelles restent à qualifier sur la carte. Voir [VALIDATION.md](VALIDATION.md) et
-[le correctif DDS sans profil](CORRECTION_DDS_SANS_PROFIL.md).
+[le correctif DDS sans profil](CORRECTION_DDS_SANS_PROFIL.md) et
+[le modèle nominal](MODELE_NOMINAL.md).
 
 ## 1. Architecture et contrats
 
@@ -23,9 +24,11 @@ les sorties. L'ISR encodeur ne fait que pousser des états A/B dans une file.
 
 États exposés : `NON_INITIALISE`, `ARRET_COMMANDE`, `PRET`, `ACTIF_COMMANDE`,
 `DDS_SEUL_COMMANDE`, `NON_CALIBRE`, `DEFAUT`. Ce sont des **états de commande**,
-pas des mesures. En interne, le mode DDS seul utilise `SYS_ACTIF_COMMANDE` avec
-`commande_courante=false` : le DDS est actif, mais la consigne analogique complète
-n'est pas appliquée. `integration_nom_etat()` distingue ces deux modes.
+pas des mesures. En interne, `SYS_ACTIF_COMMANDE` possède trois modes identifiables :
+commande calibrée (`commande_courante=true`), commande EPOT nominale non
+mesurée (`nominal_courant=true`, `commande_courante=false`) et DDS seul
+(les deux indicateurs faux). `integration_nom_etat()` expose
+`ACTIF_COMMANDE`, `NOMINAL_NON_CALIBRE` ou `DDS_SEUL_COMMANDE`.
 La dernière configuration entièrement commandée reste disponible séparément du
 catalogue ; une activation DDS seule ne remplace ni cette configuration ni ses codes.
 Une mutation USB du preset actif est refusée si l'arrêt échoue.
@@ -37,7 +40,9 @@ Le menu démarre sur la liste des signaux. La rotation ne fait que parcourir le
 catalogue. Un clic appelle `integration_choisir()` puis, seulement si la sélection
 réussit, `integration_activer()` dans la même action. Avec un profil mesuré, la fiche
 affiche fréquence, amplitude crête-à-crête et offset sur trois grandes lignes.
-Sans profil, elle affiche `DDS SEUL`, la fréquence, `A NON REGLEE` et `O NON REGLE`.
+Sans profil mais avec deux EPOT disponibles, elle affiche `NOM` et les valeurs
+**nominales non mesurées** précédées de `~`. Si les EPOT sont absents, elle
+affiche `DDS SEUL`, la fréquence, `A NON REGLEE` et `O NON REGLE`.
 Un clic revient à la liste sans arrêt ; une rotation revient au choix suivant/précédent.
 L'appui long demande l'arrêt de toutes les sorties depuis chaque écran.
 Aucun sous-menu d'activation ou de confirmation n'est nécessaire.
@@ -48,19 +53,15 @@ techniques restent accessibles par USB. La syntaxe USB et la distinction entre
 `$SELECT:N#` et `$ON#` sont conservées : le raccourci est propre au clic local.
 Le défilement de la liste et son animation n'envoient aucune commande de sortie.
 
-Avec un profil mesuré : valider le profil et la consigne → RESET DDS → forme/fréquence/
-PHASE0 sous RESET → deux EPOT dans l'ordre approuvé → stabilisation → activation DDS.
-Sans profil : RESET DDS → forme/fréquence/PHASE0 → activation DDS, **sans écrire les EPOT**.
-Ce repli ne concerne que `GF_NON_CALIBRE`. Une erreur de plage ou de validation d'un
-profil présent n'est pas contournée. Aucun profil fictif ni coefficient nominal
-n'est créé ; les positions gain/offset restent celles de l'étage matériel.
-Le succès n'est publié qu'après la dernière commande. Sur échec, tenter l'arrêt et
-conserver séparément l'erreur initiale et le résultat de cette tentative.
-
-Le mode DDS seul débloque les essais du module AD9833 ; il ne garantit ni un signal
-à la BNC, ni l'amplitude ou l'offset demandés. La commande complète nécessite une
-conversion fondée sur le schéma réel ou un profil mesuré. Le schéma bloc ne fournit
-pas les rapports de résistances et les connexions nécessaires à cette conversion.
+Avec un profil mesuré : valider profil et consigne → RESET DDS → forme/fréquence
+→ codes EPOT d'après le profil → stabilisation → activation DDS. Sans profil,
+si les EPOT sont présents : calcul de codes **nominaux** depuis les hypothèses
+du montage (600 mVpp, gain x50, rails ±15 V), puis la même séquence avec gain
+avant offset, sans délai de stabilisation caractérisé. Avec EPOT absents :
+repli DDS seul, sans commander gain et offset. Les erreurs de plage du
+profil approuvé ne basculent jamais en nominal. Les erreurs matérielles
+sont conservées. L'estimation nominale ne garantit ni bande passante,
+ni amplitude à la charge, ni offset mesuré. Voir [MODELE_NOMINAL.md](MODELE_NOMINAL.md).
 
 Les attentes de bus sont bornées ; cela ne fait pas de la boucle un système temps
 réel dur. Une activation peut prendre plusieurs transactions et jusqu'à 100 ms de

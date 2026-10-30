@@ -12,13 +12,16 @@ les tâches matérielles ouvertes sont dans [VALIDATION.md](docs/VALIDATION.md).
 Le comportement sans profil a été corrigé après ce bilan : voir
 [le correctif DDS sans profil](docs/CORRECTION_DDS_SANS_PROFIL.md).
 
-**Aucun profil analogique réel n'est livré. Sans profil, un clic active désormais
-la forme et la fréquence du DDS, sans régler les EPOT de gain et d'offset.**
-Ce mode est identifié `DDS SEUL`, pas comme une sortie analogique entièrement
-configurée. L'amplitude et l'offset du catalogue ne sont pas appliqués ; VOUT dépend
-alors de l'état réel de l'étage analogique. Aucun coefficient nominal ni profil
-approuvé fictif n'est installé. Avec un profil mesuré, la commande complète reste
-prioritaire et conserve ses contrôles de plage et de matériel.
+**Aucun profil analogique réel n'est livré.** Avec les deux MCP45HV51
+disponibles, le firmware pilote désormais le gain et l'offset avec un **modèle
+nominal non mesuré** : AD9833 supposé 600 mVpp (découplage C1/R11 du DC de
+320 mV), U1 x50, sommateur unitaire, EPOT offset entre ±15 V. Les codes sont
+calculés pour chaque signal ; les tensions affichées avec `~` sont des
+estimations, pas une calibration ni des valeurs certifiées à la BNC.
+La calibration réelle reste prioritaire. Si les EPOT manquent, le repli
+`DDS SEUL` conserve l'activation forme/fréquence sans réglage analogique.
+
+Détails, équations et risques : [modèle nominal](docs/MODELE_NOMINAL.md).
 
 Les deux sorties numériques restent non affectées (`-1`) jusqu'à confirmation de
 leur fonction et de leur câblage. Ce n'est pas une version certifiée du produit physique.
@@ -87,20 +90,20 @@ la ligne pointée.
 - **Appui long, sur n'importe quel écran** : demander l'arrêt de toutes les sorties
   puis revenir à la liste. Un échec d'arrêt est affiché, jamais présenté comme réussi.
 
-Avec un profil mesuré, la fiche affiche `ON`, la fréquence (`F`), l'amplitude
-crête-à-crête (`A`, Vpp) et l'offset (`O`). Sans profil, elle affiche par exemple :
+Avec un profil mesuré, la fiche affiche `ON` avec les consignes demandées.
+Sans profil mais avec les EPOT présents, le résultat ressemble à :
 
 ```text
-S1 SIN / DDS SEUL
+S1 SIN / NOM
 F 10kHz
-A NON REGLEE
-O NON REGLE
+A~1.059Vpp
+O~+0.059V
 ```
 
-Le bandeau de liste utilise alors `DDS S1`, et non `ON S1`. Les tensions du catalogue
-restent des consignes stockées, pas des tensions mesurées. Les EPOT sont laissés
-à leurs positions courantes ou de démarrage : un signal correct à la BNC n'est pas
-garanti par ce mode. Il sert à débloquer les essais de forme/fréquence du DDS.
+Le signe `~` signifie **calculé mais non mesuré**. Sans EPOT disponibles,
+la fiche conserve `DDS SEUL`, `A NON REGLEE`, `O NON REGLE`.
+Les trois états peuvent être distingués par USB. Un état actif ne prouve
+jamais la présence d'une tension correcte à la BNC.
 
 Aucun type, fréquence, amplitude, offset ou paramètre numérique n'est éditable depuis
 l'encodeur. Il n'y a plus de duplication, suppression, restauration usine, chargement
@@ -125,7 +128,7 @@ Lire ce signal : `$1?#`. Lire tous les signaux : `$?#`. Les réponses de lecture
 reprennent le format d'écriture. Les commandes étendues déjà présentes restent
 inchangées ; notamment `$SELECT:N#` puis `$ON#` pour une commande de sortie depuis
 le PC. Le raccourci sélection + activation concerne le clic local.
-`$STATE?#` distingue `DDS_SEUL_COMMANDE` de `ACTIF_COMMANDE`. L'acquittement
+`$STATE?#` distingue `NOMINAL_NON_CALIBRE`, `DDS_SEUL_COMMANDE` et `ACTIF_COMMANDE`. L'acquittement
 `OK:ON_COMMANDE` est conservé pour compatibilité : il ne certifie pas l'amplitude/offset.
 
 Chaque modification USB validée demande une sauvegarde différée de 300 ms.
@@ -152,6 +155,7 @@ L'acquittement `OK:RAM` n'est pas une preuve de persistance.
 
 ## Documents et organisation
 
+- [Modèle nominal](docs/MODELE_NOMINAL.md) : calcul des EPOT, hypothèses, risques et validation.
 - [Correctif DDS sans profil](docs/CORRECTION_DDS_SANS_PROFIL.md) : comportement,
   limites et essais ajoutés pour supprimer le blocage de la génération DDS.
 - [Guide technique](docs/GUIDE_TECHNIQUE.md) : architecture, brochage, stockage,
