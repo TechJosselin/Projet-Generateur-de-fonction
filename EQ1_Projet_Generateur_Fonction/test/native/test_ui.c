@@ -127,26 +127,27 @@ static void sans_calibration(void) {
     for(unsigned i=0;i<SIGNAL_INIT_COUNT;i++) {
         initialiser(false);uint32_t revision=integration_statut()->revision;
         plus(i);clic();dessin(0);
-        CHECK(activations==1 && commandes==1 && epots==0);
-        CHECK(strstr(lignes[0],"DDS SEUL") && !strcmp(grandes[1],"A NON REGLEE") && !strcmp(grandes[2],"O NON REGLE"));
-        CHECK(!integration_statut()->commande_courante && !integration_calibration()->approuve);
+        CHECK(activations==1 && commandes==1 && epots==2);
+        CHECK(strstr(lignes[0],"/ NOM") && grandes[1][1]=='~' && grandes[2][1]=='~');
+        CHECK(integration_statut()->nominal_courant && !integration_statut()->commande_courante);
+        CHECK(!integration_calibration()->approuve);
         CHECK(integration_statut()->revision==revision);
-        clic();dessin(1);CHECK(strstr(lignes[0],"DDS S") && activations==1);
+        clic();dessin(1);CHECK(strstr(lignes[0],"NOM S") && activations==1);
         menu_traiter(UI_APPUI_LONG);dessin(2);CHECK(strstr(lignes[0],"OFF"));
     }
     initialiser(false);clic();char reponse[512];
-    usb("$STATE?#",0,reponse,sizeof(reponse));CHECK(strstr(reponse,"DDS_SEUL_COMMANDE"));
+    usb("$STATE?#",0,reponse,sizeof(reponse));CHECK(strstr(reponse,"NOMINAL_NON_CALIBRE"));
     usb("$1:SIN:1500:+250:12345#",1,reponse,sizeof(reponse));
     CHECK(strstr(reponse,"$OK:RAM:") && integration_statut()->etat!=SYS_ACTIF_COMMANDE);
-    clic();clic();dessin(2);CHECK(!strcmp(grandes[0],"F 12345Hz") && epots==0);
+    clic();clic();dessin(2);CHECK(!strcmp(grandes[0],"F 12345Hz") && epots==4);
     usb("$1?#",3,reponse,sizeof(reponse));CHECK(!strcmp(reponse,"$1:SIN:1500:+250:12345#"));
     /* Importer un profil ne reactive pas tout seul la sortie. */
     calibration_t p=fixture();uint8_t image[CAL_IMAGE_SIZE];
     CHECK(calibration_encoder(&p,image)==GF_OK);CHECK(integration_importer_calibration(image)==GF_OK);
     dessin(300);CHECK(strstr(lignes[0],"OFF"));
-    clic();clic();dessin(301);CHECK(strstr(lignes[0],"/ ON") && epots==2);
+    clic();clic();dessin(301);CHECK(strstr(lignes[0],"/ ON") && epots==6);
     CHECK(!strcmp(grandes[1],"A 1.500Vpp") && !strcmp(grandes[2],"O +0.250V"));
-    puts("PASS UI DDS seul : clic sans profil, indications A/O non regles, USB et passage au mode calibre.");
+    puts("PASS UI nominal : codes A/O estimes, USB et passage au mode calibre.");
 }
 static void lecture_seule_et_usb(void) {
     initialiser(true);signal_config_t copie[SIGNAL_INIT_COUNT];

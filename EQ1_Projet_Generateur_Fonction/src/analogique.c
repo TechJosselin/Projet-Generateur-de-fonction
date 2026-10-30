@@ -127,3 +127,24 @@ gf_result_t analogique_convertir(const calibration_t *p,const signal_config_t *s
     if(err>v->erreur_offset_mv || !excursion(p,best.amplitude_estimee_mvpp,best.offset_estime_mv))return GF_PLAGE;
     *cmd=best;return GF_OK;
 }
+
+/* Mode nominal NON MESURE : 600 mVpp apres C1/R11, U1=50, sommateur x1.
+ * Les 320 mV continus de l'AD9833 sont bloques EN REGIME ETABLI par C1.
+ * Les effets de polarisation, bandes passantes, charge et LT1206 restent inconnus. */
+gf_result_t analogique_convertir_nominal(const signal_config_t *s,
+                                        analogique_commande_t *cmd) {
+    if(!s || !cmd || !signaux_valide(*s))return GF_ARGUMENT;
+    const int64_t amp_max=600LL*50LL, rail=15000LL, delta=2*rail;
+    /* Garde mathematique des rails +/-15 V (pas une garantie de swing reel). */
+    if(2*(int64_t)s->offset_mv-s->amplitude_mvpp< -2*rail ||
+       2*(int64_t)s->offset_mv+s->amplitude_mvpp> 2*rail)return GF_PLAGE;
+    int64_t gain=((int64_t)s->amplitude_mvpp*255+amp_max/2)/amp_max;
+    int64_t offset=(((int64_t)s->offset_mv+rail)*255+delta/2)/delta;
+    if(gain<0 || gain>255 || offset<0 || offset>255)return GF_PLAGE;
+    analogique_commande_t c={0};c.gain=(uint8_t)gain;c.offset=(uint8_t)offset;
+    c.amplitude_estimee_mvpp=(int32_t)((gain*amp_max+127)/255);
+    c.offset_estime_mv=(int32_t)(-rail+(offset*delta+127)/255);
+    if(2*(int64_t)c.offset_estime_mv-c.amplitude_estimee_mvpp< -2*rail ||
+       2*(int64_t)c.offset_estime_mv+c.amplitude_estimee_mvpp> 2*rail)return GF_PLAGE;
+    *cmd=c;return GF_OK;
+}

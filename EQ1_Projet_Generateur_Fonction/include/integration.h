@@ -18,7 +18,7 @@ typedef struct {
 typedef struct {
     systeme_etat_t etat;
     int selection;
-    bool derniere_valide,commande_courante;
+    bool derniere_valide,commande_courante,nominal_courant;
     signal_config_t derniere;
     analogique_commande_t codes;
     uint32_t revision,revision_sauvee,revision_en_sauvegarde;

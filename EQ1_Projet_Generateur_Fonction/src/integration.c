@@ -14,8 +14,7 @@ const calibration_t *integration_calibration(void){return &profil;}
 const digital_statut_t *integration_digital_statut(unsigned c){return c<2?&digitales[c]:NULL;}
 const char *integration_nom_etat(void) {
     static const char *const noms[]={"NON_INITIALISE","ARRET_COMMANDE","PRET","ACTIF_COMMANDE","NON_CALIBRE","DEFAUT"};
-    /* ACTIF sans commande complete : seule la forme/frequence DDS est appliquee.
-     * commande_courante ne doit jamais certifier l'amplitude/offset dans ce mode. */
+    if(etat.etat==SYS_ACTIF_COMMANDE && etat.nominal_courant)return "NOMINAL_NON_CALIBRE";
     if(etat.etat==SYS_ACTIF_COMMANDE && !etat.commande_courante)return "DDS_SEUL_COMMANDE";
     return noms[etat.etat];
 }
@@ -41,7 +40,7 @@ static void changer(void) {
 }
 static gf_result_t arreter_analogique(void) {
     gf_result_t r=hw.dds && hw.arreter?hw.arreter(hw.ctx):GF_ABSENT;
-    etat.erreur_arret=r;etat.commande_courante=false;
+    etat.erreur_arret=r;etat.commande_courante=false;etat.nominal_courant=false;
     if(r!=GF_OK){etat.erreur=r;etat.etape="ARRET_DDS";etat.etat=SYS_DEFAUT;return r;}
     etat_arrete();return resultat(GF_OK,"ARRET_DDS");
 }
@@ -108,51 +107,59 @@ void integration_periodique(uint32_t now) {
 gf_result_t integration_choisir(size_t index) {
     if(!signaux_lire(index))return resultat(GF_INDEX,"SELECTION");
     gf_result_t r=arreter_si_necessaire();if(r!=GF_OK)return r;
-    etat.selection=(int)index;etat.commande_courante=false;etat_arrete();
+    etat.selection=(int)index;etat.commande_courante=false;etat.nominal_courant=false;etat_arrete();
     return resultat(GF_OK,"SELECTION_RAM");
 }
 static gf_result_t defaut(gf_result_t r,const char *etape) {
     etat.erreur_arret=hw.arreter?hw.arreter(hw.ctx):GF_ABSENT;
-    etat.erreur=r;etat.etape=etape;etat.etat=SYS_DEFAUT;etat.commande_courante=false;return r;
+    etat.erreur=r;etat.etape=etape;etat.etat=SYS_DEFAUT;etat.commande_courante=false;etat.nominal_courant=false;return r;
 }
 gf_result_t integration_activer(void) {
     if(etat.etat==SYS_DEFAUT)return resultat(GF_CONFLIT,"ARRET_REQUIS");
     const signal_config_t *s=etat.selection>=0?signaux_lire((size_t)etat.selection):NULL;
     if(!s)return resultat(GF_SELECTION,"SELECTION");
-    analogique_commande_t codes;gf_result_t r=analogique_convertir(&profil,s,&codes);
-    const bool dds_seul=r==GF_NON_CALIBRE;
-    /* Un profil absent ne bloque plus le DDS. En revanche, une plage refusee,
-     * un profil invalide ou une forme non qualifiee ne passent PAS en mode DDS.
-     * Aucune loi gain/offset n'est inventee et aucun profil n'est approuve ici. */
-    if(r!=GF_OK && !dds_seul)return resultat(r,"CALIBRATION");
+    analogique_commande_t codes={0};
+    gf_result_t r=analogique_convertir(&profil,s,&codes);
+    bool sans_profil=r==GF_NON_CALIBRE;
+    if(r!=GF_OK && !sans_profil)return resultat(r,"CALIBRATION");
+    /* Profil approuve prioritaire. En son absence, EPOT nominaux si disponibles,
+     * sinon DDS seul explicitement indique. Aucune mesure n'est simulee. */
+    bool epot_ok=hw.epots && hw.gain && hw.offset;
+    bool nominal=sans_profil && epot_ok;
+    bool dds_seul=sans_profil && !epot_ok;
+    if(nominal) {
+        r=analogique_convertir_nominal(s,&codes);
+        if(r!=GF_OK)return resultat(r,"MODELE_NOMINAL");
+    }
     if(!hw.dds || !hw.arreter || !hw.dds_configurer || !hw.activer)
         return resultat(GF_ABSENT,"MATERIEL_DDS");
-    if(!dds_seul && (!hw.epots || !hw.gain || !hw.offset))
-        return resultat(GF_ABSENT,"MATERIEL_EPOT");
-    if(!dds_seul && profil.stabilisation_ms && !hw.attendre_ms)
+    if(!sans_profil && !epot_ok)return resultat(GF_ABSENT,"MATERIEL_EPOT");
+    if(!sans_profil && profil.stabilisation_ms && !hw.attendre_ms)
         return resultat(GF_NON_SUPPORTE,"STABILISATION");
     r=arreter_analogique();if(r!=GF_OK)return r;
     r=hw.dds_configurer(hw.ctx,s);if(r!=GF_OK)return defaut(r,"DDS_CONFIG");
     if(!dds_seul) {
-        if(profil.gain_avant_offset) {
+        if(nominal || profil.gain_avant_offset) {
             r=hw.gain(hw.ctx,codes.gain);if(r!=GF_OK)return defaut(r,"GAIN");
             r=hw.offset(hw.ctx,codes.offset);if(r!=GF_OK)return defaut(r,"OFFSET");
         } else {
             r=hw.offset(hw.ctx,codes.offset);if(r!=GF_OK)return defaut(r,"OFFSET");
             r=hw.gain(hw.ctx,codes.gain);if(r!=GF_OK)return defaut(r,"GAIN");
         }
-        if(profil.stabilisation_ms)hw.attendre_ms(hw.ctx,profil.stabilisation_ms);
+        if(!sans_profil && profil.stabilisation_ms)hw.attendre_ms(hw.ctx,profil.stabilisation_ms);
     }
     r=hw.activer(hw.ctx);if(r!=GF_OK)return defaut(r,"ACTIVATION");
-    etat.etat=SYS_ACTIF_COMMANDE;
+    etat.etat=SYS_ACTIF_COMMANDE;etat.nominal_courant=nominal;
     if(dds_seul) {
-        /* Les EPOT restent inchanges. L'etat ON ne prouve ni VOUT ni son amplitude.
-         * Conserver la derniere commande COMPLETE, sans la remplacer par ce test. */
         etat.commande_courante=false;
         return resultat(GF_OK,"DDS_SEUL_NON_CALIBRE");
     }
-    etat.derniere=*s;etat.derniere_valide=true;etat.codes=codes;
-    etat.commande_courante=true;
+    etat.codes=codes;
+    if(nominal) {
+        etat.commande_courante=false; /* Derniere = commande calibree historique. */
+        return resultat(GF_OK,"EPOT_NOMINAL_NON_MESURE");
+    }
+    etat.derniere=*s;etat.derniere_valide=true;etat.commande_courante=true;
     return resultat(GF_OK,"COMMANDE_COMPLETE");
 }
 gf_result_t integration_modifier(size_t i,signal_config_t s,uint32_t attendu) {

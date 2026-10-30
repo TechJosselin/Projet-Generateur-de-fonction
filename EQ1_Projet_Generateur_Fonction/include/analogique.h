@@ -31,4 +31,7 @@ gf_result_t calibration_encoder(const calibration_t *p,uint8_t image[CAL_IMAGE_S
 gf_result_t calibration_decoder(const uint8_t image[CAL_IMAGE_SIZE],calibration_t *p);
 gf_result_t analogique_convertir(const calibration_t *p, const signal_config_t *s,
                                 analogique_commande_t *commande);
+/* Conversion nominale sans profil: AD9833 600mVpp, U1 x50, offset EPOT +/-15V. */
+gf_result_t analogique_convertir_nominal(const signal_config_t *s,
+                                        analogique_commande_t *commande);
 #endif

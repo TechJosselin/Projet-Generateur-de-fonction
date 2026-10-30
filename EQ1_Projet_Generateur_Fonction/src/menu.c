@@ -114,20 +114,21 @@ static void afficher(void) {
     const signal_config_t *s=signaux_lire((size_t)index_signal);
     char b[64],v[24];oled_effacer();defilement_necessaire=false;
     bool actif=st->etat==SYS_ACTIF_COMMANDE;
-    bool dds_seul=actif && !st->commande_courante;
+    bool nominal=actif && st->nominal_courant;
+    bool dds_seul=actif && !st->commande_courante && !nominal;
     switch(page) {
     case LISTE:
         if(st->etat==SYS_DEFAUT)
             snprintf(b,sizeof(b),"SIG %d/%u DEFAUT",index_signal+1,(unsigned)signaux_nombre());
         else if(actif)
             snprintf(b,sizeof(b),"SIG %d/%u %s S%d",index_signal+1,(unsigned)signaux_nombre(),
-                     dds_seul?"DDS":"ON",st->selection+1);
+                     dds_seul?"DDS":nominal?"NOM":"ON",st->selection+1);
         else snprintf(b,sizeof(b),"SIG %d/%u OFF",index_signal+1,(unsigned)signaux_nombre());
         liste(b);break;
     case DETAIL:
         if(!s){aller(LISTE);liste("AUCUN SIGNAL / USB");break;}
         snprintf(b,sizeof(b),"S%d %s / %s",index_signal+1,signaux_type_court(s->forme),
-                 st->etat==SYS_DEFAUT?"DEFAUT":(actif && st->selection==index_signal?(dds_seul?"DDS SEUL":"ON"):"OFF"));
+                 st->etat==SYS_DEFAUT?"DEFAUT":(actif && st->selection==index_signal?(dds_seul?"DDS SEUL":nominal?"NOM":"ON"):"OFF"));
         bandeau(b);
         signaux_formater_frequence(v,sizeof(v),s->frequence_hz);
         snprintf(b,sizeof(b),"F %s",v);oled_texte_grand(4,14,b);
@@ -136,6 +137,12 @@ static void afficher(void) {
              * Ne pas afficher 1.000 Vpp comme si les EPOT avaient ete regles. */
             oled_texte_grand(4,31,"A NON REGLEE");
             oled_texte_grand(4,48,"O NON REGLE");
+        } else if(nominal && st->selection==index_signal) {
+            /* ~ : estimation des codes commandes, pas mesure VOUT. */
+            signaux_formater_tension(v,sizeof(v),st->codes.amplitude_estimee_mvpp,false);
+            snprintf(b,sizeof(b),"A~%spp",v);oled_texte_grand(4,31,b);
+            signaux_formater_tension(v,sizeof(v),st->codes.offset_estime_mv,true);
+            snprintf(b,sizeof(b),"O~%s",v);oled_texte_grand(4,48,b);
         } else {
             signaux_formater_tension(v,sizeof(v),s->amplitude_mvpp,false);
             snprintf(b,sizeof(b),"A %spp",v);oled_texte_grand(4,31,b);
