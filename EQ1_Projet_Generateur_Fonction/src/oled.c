@@ -1,465 +1,150 @@
-/*===============================================================================================
-CFPT - Projet : Générateur de fonction
-Fichier      : oled.c
-Description  : Driver applicatif de l'écran OLED SH1106 128x64 I2C
-===============================================================================================*/
-
-#include <stdio.h>
-#include <string.h>
-
+/* SH1106 et police du prototype. Transfert d'une page sale par iteration. */
 #include "oled.h"
+#include "i2c_commun.h"
 #include "hardware_config.h"
-
-#include "esp_lcd_panel_io.h"
-#include "esp_lcd_panel_ops.h"
-#include "esp_lcd_panel_sh1106.h"
-
-/*===============================================================================================
-VARIABLES LOCALES
-===============================================================================================*/
-static esp_lcd_panel_io_handle_t gOledIoHandle = NULL;
-static esp_lcd_panel_handle_t gOledPanelHandle = NULL;
-static bool gOledInitialized = false;
-static uint8_t gOledI2cAddress = 0U;
-static uint8_t gOledFrameBuffer[(SYSTEM_OLED_WIDTH * SYSTEM_OLED_HEIGHT) / 8U];
-
-/* Police minimale 5x7 pour les chiffres 0..9. Chaque octet représente une ligne sur 5 pixels. */
-static const uint8_t gDigitGlyphs[10][7] =
-{
-    {0x0EU, 0x11U, 0x13U, 0x15U, 0x19U, 0x11U, 0x0EU}, /* 0 */
-    {0x04U, 0x0CU, 0x04U, 0x04U, 0x04U, 0x04U, 0x0EU}, /* 1 */
-    {0x0EU, 0x11U, 0x01U, 0x02U, 0x04U, 0x08U, 0x1FU}, /* 2 */
-    {0x1EU, 0x01U, 0x01U, 0x0EU, 0x01U, 0x01U, 0x1EU}, /* 3 */
-    {0x02U, 0x06U, 0x0AU, 0x12U, 0x1FU, 0x02U, 0x02U}, /* 4 */
-    {0x1FU, 0x10U, 0x10U, 0x1EU, 0x01U, 0x01U, 0x1EU}, /* 5 */
-    {0x0EU, 0x10U, 0x10U, 0x1EU, 0x11U, 0x11U, 0x0EU}, /* 6 */
-    {0x1FU, 0x01U, 0x02U, 0x04U, 0x08U, 0x08U, 0x08U}, /* 7 */
-    {0x0EU, 0x11U, 0x11U, 0x0EU, 0x11U, 0x11U, 0x0EU}, /* 8 */
-    {0x0EU, 0x11U, 0x11U, 0x0FU, 0x01U, 0x01U, 0x0EU}  /* 9 */
+#include <stddef.h>
+#include <string.h>
+#include "driver/i2c_master.h"
+static uint8_t image[8][128],envoyee[8][128];
+static uint8_t force=255,prochaine;
+static uint32_t erreurs,dernier_essai;
+static bool present;
+static i2c_master_dev_handle_t device;
+typedef struct {char c;uint8_t x[5];} glyph_t;
+static const glyph_t police[]={
+    {' ',{0x00,0x00,0x00,0x00,0x00}},
+    {'!',{0x00,0x00,0x5f,0x00,0x00}},
+    {'$',{0x24,0x2a,0x7f,0x2a,0x12}},
+    {'#',{0x14,0x7f,0x14,0x7f,0x14}},
+    {'%',{0x23,0x13,0x08,0x64,0x62}},
+    {'+',{0x08,0x08,0x3e,0x08,0x08}},
+    {',',{0x00,0x50,0x30,0x00,0x00}},
+    {'-',{0x08,0x08,0x08,0x08,0x08}},
+    {'.',{0x00,0x60,0x60,0x00,0x00}},
+    {'/',{0x20,0x10,0x08,0x04,0x02}},
+    {'0',{0x3e,0x51,0x49,0x45,0x3e}},
+    {'1',{0x00,0x42,0x7f,0x40,0x00}},
+    {'2',{0x42,0x61,0x51,0x49,0x46}},
+    {'3',{0x21,0x41,0x45,0x4b,0x31}},
+    {'4',{0x18,0x14,0x12,0x7f,0x10}},
+    {'5',{0x27,0x45,0x45,0x45,0x39}},
+    {'6',{0x3c,0x4a,0x49,0x49,0x30}},
+    {'7',{0x01,0x71,0x09,0x05,0x03}},
+    {'8',{0x36,0x49,0x49,0x49,0x36}},
+    {'9',{0x06,0x49,0x49,0x29,0x1e}},
+    {':',{0x00,0x36,0x36,0x00,0x00}},
+    {'=',{0x14,0x14,0x14,0x14,0x14}},
+    {'>',{0x41,0x22,0x14,0x08,0x00}},
+    {'?',{0x02,0x01,0x51,0x09,0x06}},
+    {'A',{0x7e,0x11,0x11,0x11,0x7e}},
+    {'B',{0x7f,0x49,0x49,0x49,0x36}},
+    {'C',{0x3e,0x41,0x41,0x41,0x22}},
+    {'D',{0x7f,0x41,0x41,0x22,0x1c}},
+    {'E',{0x7f,0x49,0x49,0x49,0x41}},
+    {'F',{0x7f,0x09,0x09,0x09,0x01}},
+    {'G',{0x3e,0x41,0x49,0x49,0x7a}},
+    {'H',{0x7f,0x08,0x08,0x08,0x7f}},
+    {'I',{0x00,0x41,0x7f,0x41,0x00}},
+    {'J',{0x20,0x40,0x41,0x3f,0x01}},
+    {'K',{0x7f,0x08,0x14,0x22,0x41}},
+    {'L',{0x7f,0x40,0x40,0x40,0x40}},
+    {'M',{0x7f,0x02,0x0c,0x02,0x7f}},
+    {'N',{0x7f,0x04,0x08,0x10,0x7f}},
+    {'O',{0x3e,0x41,0x41,0x41,0x3e}},
+    {'P',{0x7f,0x09,0x09,0x09,0x06}},
+    {'Q',{0x3e,0x41,0x51,0x21,0x5e}},
+    {'R',{0x7f,0x09,0x19,0x29,0x46}},
+    {'S',{0x46,0x49,0x49,0x49,0x31}},
+    {'T',{0x01,0x01,0x7f,0x01,0x01}},
+    {'U',{0x3f,0x40,0x40,0x40,0x3f}},
+    {'V',{0x1f,0x20,0x40,0x20,0x1f}},
+    {'W',{0x7f,0x20,0x18,0x20,0x7f}},
+    {'X',{0x63,0x14,0x08,0x14,0x63}},
+    {'Y',{0x03,0x04,0x78,0x04,0x03}},
+    {'Z',{0x61,0x51,0x49,0x45,0x43}},
+    {'*',{0x14,0x08,0x3e,0x08,0x14}},
+    {'_',{0x40,0x40,0x40,0x40,0x40}}
 };
-
-static const uint8_t gMinusGlyph[7] =
-{
-    0x00U, 0x00U, 0x00U, 0x1FU, 0x00U, 0x00U, 0x00U
-};
-
-/*===============================================================================================
-PROTOTYPES DE FONCTIONS LOCALES
-===============================================================================================*/
-static esp_err_t Oled_DetectAddress(i2c_master_bus_handle_t bus_handle, uint8_t *address);
-static void Oled_SetPixel(uint16_t x, uint16_t y, bool enabled);
-static void Oled_DrawCharacter(uint16_t x, uint16_t y, char character, uint8_t scale);
-static void Oled_CleanupHandles(void);
-
-/*===============================================================================================
-FONCTIONS LOCALES
-===============================================================================================*/
-static esp_err_t Oled_DetectAddress(i2c_master_bus_handle_t bus_handle, uint8_t *address)
-{
-    if ((bus_handle == NULL) || (address == NULL))
-    {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    if (i2c_master_probe(bus_handle,
-                         SYSTEM_OLED_I2C_ADDRESS_PRIMARY,
-                         SYSTEM_OLED_PROBE_TIMEOUT_MS) == ESP_OK)
-    {
-        *address = SYSTEM_OLED_I2C_ADDRESS_PRIMARY;
-        return ESP_OK;
-    }
-
-    if (i2c_master_probe(bus_handle,
-                         SYSTEM_OLED_I2C_ADDRESS_SECONDARY,
-                         SYSTEM_OLED_PROBE_TIMEOUT_MS) == ESP_OK)
-    {
-        *address = SYSTEM_OLED_I2C_ADDRESS_SECONDARY;
-        return ESP_OK;
-    }
-
-    return ESP_ERR_NOT_FOUND;
+static const uint8_t *glyphe(char c) {
+    if(c>='a' && c<='z')c=(char)(c-32);
+    for(unsigned i=0;i<sizeof(police)/sizeof(police[0]);i++)if(police[i].c==c)return police[i].x;
+    return police[0].x;
 }
-
-static void Oled_SetPixel(uint16_t x, uint16_t y, bool enabled)
-{
-    if ((x >= SYSTEM_OLED_WIDTH) || (y >= SYSTEM_OLED_HEIGHT))
-    {
-        return;
-    }
-
-    const uint16_t page = y / 8U;
-    const uint8_t bit = (uint8_t)(y % 8U);
-    const uint16_t index = (page * SYSTEM_OLED_WIDTH) + x;
-
-    if (enabled)
-    {
-        gOledFrameBuffer[index] |= (uint8_t)(1U << bit);
-    }
-    else
-    {
-        gOledFrameBuffer[index] &= (uint8_t)~(1U << bit);
-    }
+static bool commande(const uint8_t *p,size_t n) {
+    if(!device || n>31)return false;
+    uint8_t b[32]={0};memcpy(b+1,p,n);
+    return i2c_master_transmit(device,b,n+1,30)==ESP_OK;
 }
-
-static void Oled_DrawCharacter(uint16_t x, uint16_t y, char character, uint8_t scale)
-{
-    const uint8_t *glyph = NULL;
-    uint8_t row;
-    uint8_t column;
-    uint8_t sx;
-    uint8_t sy;
-
-    if ((character >= '0') && (character <= '9'))
-    {
-        glyph = gDigitGlyphs[(uint8_t)(character - '0')];
+bool oled_initialiser(void) {
+    if(present)return true;
+    if(i2c_commun_initialiser()!=ESP_OK)return false;
+    if(!device) {
+        i2c_master_bus_handle_t bus=i2c_commun_bus();uint8_t a=SYSTEM_OLED_I2C_ADDRESS_PRIMARY;
+        if(i2c_master_probe(bus,a,30)!=ESP_OK){a=SYSTEM_OLED_I2C_ADDRESS_SECONDARY;if(i2c_master_probe(bus,a,30)!=ESP_OK)return false;}
+        i2c_device_config_t c={.dev_addr_length=I2C_ADDR_BIT_LEN_7,.device_address=a,.scl_speed_hz=SYSTEM_OLED_I2C_SPEED_HZ};
+        if(i2c_master_bus_add_device(bus,&c,&device)!=ESP_OK){device=NULL;return false;}
     }
-    else if (character == '-')
-    {
-        glyph = gMinusGlyph;
-    }
-    else
-    {
-        return;
-    }
-
-    for (row = 0U; row < 7U; row++)
-    {
-        for (column = 0U; column < 5U; column++)
-        {
-            const bool enabled = (glyph[row] & (uint8_t)(1U << (4U - column))) != 0U;
-
-            if (!enabled)
-            {
-                continue;
-            }
-
-            for (sy = 0U; sy < scale; sy++)
-            {
-                for (sx = 0U; sx < scale; sx++)
-                {
-                    Oled_SetPixel((uint16_t)(x + (column * scale) + sx),
-                                  (uint16_t)(y + (row * scale) + sy),
-                                  true);
-                }
+    static const uint8_t init[]={0xAE,0xD5,0x80,0xA8,0x3F,0xD3,0x00,0x40,0xAD,0x8B,
+        0xA1,0xC8,0xDA,0x12,0x81,0x80,0xD9,0x22,0xDB,0x35,0xA4,0xA6,0xAF};
+    present=commande(init,sizeof(init));if(present)force=255;else erreurs++;
+    return present;
+}
+bool oled_est_present(void){return present;}
+uint32_t oled_erreurs(void){return erreurs;}
+void oled_effacer(void){memset(image,0,sizeof(image));}
+void oled_texte(int l,int c,const char *p) {
+    if(l<0 || l>=8 || c<0 || c>=21 || !p)return;
+    int x=c*6;
+    while(*p && x+5<128){memcpy(&image[l][x],glyphe(*p++),5);image[l][x+5]=0;x+=6;}
+}
+void oled_ligne(int l,const char *p,bool inv) {
+    if(l<0 || l>=8)return;
+    memset(image[l],0,128);oled_texte(l,0,p);if(inv)for(unsigned x=0;x<128;x++)image[l][x]^=255;
+}
+/* Police de la branche menu-oled-3-lignes : colonnes reparties a 1.5x,
+ * lignes doublees. Un glyphe occupe 7 pixels dans une cellule de 9 pixels.
+ * Coordonnees bornees avant les additions, meme pour INT_MIN / INT_MAX. */
+void oled_texte_grand(int x,int y,const char *texte) {
+    if(!texte || x < -7 || x >= 128 || y <= -OLED_GRAND_HAUTEUR || y >= 64)return;
+    while(*texte && x <= 120) {
+        const uint8_t *g=glyphe(*texte++);
+        for(int c=0;c<5;c++) {
+            int debut=(c*3)/2,fin=((c+1)*3)/2;
+            for(int l=0;l<7;l++) {
+                if(!(g[c]&(1U<<l)))continue;
+                for(int dx=debut;dx<fin;dx++)
+                    for(int dy=0;dy<2;dy++)oled_pixel(x+dx,y+l*2+dy);
             }
         }
+        x+=OLED_GRAND_PAS_X;
     }
 }
-
-static void Oled_CleanupHandles(void)
-{
-    if (gOledPanelHandle != NULL)
-    {
-        esp_lcd_panel_del(gOledPanelHandle);
-        gOledPanelHandle = NULL;
-    }
-
-    if (gOledIoHandle != NULL)
-    {
-        esp_lcd_panel_io_del(gOledIoHandle);
-        gOledIoHandle = NULL;
-    }
-
-    gOledInitialized = false;
-    gOledI2cAddress = 0U;
+void oled_inverser_zone(int x,int y,int largeur,int hauteur) {
+    if(largeur<=0 || hauteur<=0)return;
+    /* Sommes sur 64 bits, puis intersection avec la dalle : travail borne. */
+    int64_t droite=(int64_t)x+largeur,bas=(int64_t)y+hauteur;
+    if(x>=128 || y>=64 || droite<=0 || bas<=0)return;
+    int x0=x<0?0:x,y0=y<0?0:y;
+    int x1=droite>128?128:(int)droite,y1=bas>64?64:(int)bas;
+    for(int py=y0;py<y1;py++)
+        for(int px=x0;px<x1;px++)image[py/8][px]^=(uint8_t)(1U<<(py%8));
 }
-
-/*===============================================================================================
-FONCTIONS PUBLIQUES
-===============================================================================================*/
-esp_err_t Oled_Init(i2c_master_bus_handle_t bus_handle)
-{
-    esp_err_t err;
-    uint8_t detected_address = 0U;
-
-    if (bus_handle == NULL)
-    {
-        printf("OLED diagnostic : bus I2C NULL -> ECHEC\n");
-        fflush(stdout);
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    if (gOledInitialized)
-    {
-        return ESP_OK;
-    }
-
-    printf("OLED diagnostic : probe 0x%02X / 0x%02X...\n",
-           SYSTEM_OLED_I2C_ADDRESS_PRIMARY,
-           SYSTEM_OLED_I2C_ADDRESS_SECONDARY);
-
-    err = Oled_DetectAddress(bus_handle, &detected_address);
-    if (err != ESP_OK)
-    {
-        printf("OLED diagnostic : probe -> ECHEC (%s)\n", esp_err_to_name(err));
-        fflush(stdout);
-        return err;
-    }
-
-    printf("OLED diagnostic : probe -> OK, adresse 0x%02X\n", detected_address);
-    printf("OLED diagnostic : creation interface I2C a %u Hz...\n",
-           (unsigned int)SYSTEM_OLED_I2C_SPEED_HZ);
-
-    const esp_lcd_panel_io_i2c_config_t io_config =
-    {
-        .dev_addr = detected_address,
-        .scl_speed_hz = SYSTEM_OLED_I2C_SPEED_HZ,
-        .control_phase_bytes = 1,
-        .dc_bit_offset = 6,
-        .lcd_cmd_bits = 8,
-        .lcd_param_bits = 8,
-    };
-
-    err = esp_lcd_new_panel_io_i2c(bus_handle, &io_config, &gOledIoHandle);
-    if (err != ESP_OK)
-    {
-        printf("OLED diagnostic : creation interface I2C -> ECHEC (%s)\n", esp_err_to_name(err));
-        Oled_CleanupHandles();
-        fflush(stdout);
-        return err;
-    }
-    printf("OLED diagnostic : creation interface I2C -> OK\n");
-
-    const esp_lcd_panel_dev_config_t panel_config =
-    {
-        .reset_gpio_num = -1,
-        .bits_per_pixel = 1,
-    };
-
-    printf("OLED diagnostic : creation panel SH1106...\n");
-    err = esp_lcd_new_panel_sh1106(gOledIoHandle, &panel_config, &gOledPanelHandle);
-    if (err != ESP_OK)
-    {
-        printf("OLED diagnostic : creation panel SH1106 -> ECHEC (%s)\n", esp_err_to_name(err));
-        Oled_CleanupHandles();
-        fflush(stdout);
-        return err;
-    }
-    printf("OLED diagnostic : creation panel SH1106 -> OK\n");
-
-    printf("OLED diagnostic : reset panel...\n");
-    err = esp_lcd_panel_reset(gOledPanelHandle);
-    if (err != ESP_OK)
-    {
-        printf("OLED diagnostic : reset panel -> ECHEC (%s)\n", esp_err_to_name(err));
-        Oled_CleanupHandles();
-        fflush(stdout);
-        return err;
-    }
-    printf("OLED diagnostic : reset panel -> OK\n");
-
-    printf("OLED diagnostic : initialisation SH1106...\n");
-    err = esp_lcd_panel_init(gOledPanelHandle);
-    if (err != ESP_OK)
-    {
-        printf("OLED diagnostic : initialisation SH1106 -> ECHEC (%s)\n", esp_err_to_name(err));
-        Oled_CleanupHandles();
-        fflush(stdout);
-        return err;
-    }
-    printf("OLED diagnostic : initialisation SH1106 -> OK\n");
-
-    printf("OLED diagnostic : activation affichage...\n");
-    err = esp_lcd_panel_disp_on_off(gOledPanelHandle, true);
-    if (err != ESP_OK)
-    {
-        printf("OLED diagnostic : activation affichage -> ECHEC (%s)\n", esp_err_to_name(err));
-        Oled_CleanupHandles();
-        fflush(stdout);
-        return err;
-    }
-    printf("OLED diagnostic : activation affichage -> OK\n");
-
-    gOledI2cAddress = detected_address;
-    gOledInitialized = true;
-
-    printf("OLED diagnostic : effacement framebuffer...\n");
-    err = Oled_Clear();
-    if (err != ESP_OK)
-    {
-        printf("OLED diagnostic : effacement framebuffer -> ECHEC (%s)\n", esp_err_to_name(err));
-        Oled_CleanupHandles();
-        fflush(stdout);
-        return err;
-    }
-
-    printf("OLED diagnostic : effacement framebuffer -> OK\n");
-    printf("OLED diagnostic : INITIALISATION COMPLETE A 0x%02X / %u Hz\n",
-           gOledI2cAddress,
-           (unsigned int)SYSTEM_OLED_I2C_SPEED_HZ);
-    fflush(stdout);
-
-    return ESP_OK;
+void oled_pixel(int x,int y){if(x>=0 && x<128 && y>=0 && y<64)image[y/8][x]|=(uint8_t)(1U<<(y%8));}
+void oled_segment(int x,int y,int x1,int y1) {
+    /* Coordonnees limitees pour borner le travail du traceur. */
+    if(x<0 || x>127 || x1<0 || x1>127 || y<0 || y>63 || y1<0 || y1>63)return;
+    int dx=x1>x?x1-x:x-x1,dy=y1>y?y1-y:y-y1,sx=x<x1?1:-1,sy=y<y1?1:-1,e=dx-dy;
+    for(;;){oled_pixel(x,y);if(x==x1 && y==y1)break;int e2=2*e;if(e2> -dy){e-=dy;x+=sx;}if(e2<dx){e+=dx;y+=sy;}}
 }
-
-esp_err_t Oled_Deinit(void)
-{
-    esp_err_t first_error = ESP_OK;
-    esp_err_t err;
-
-    if (!gOledInitialized)
-    {
-        return ESP_OK;
-    }
-
-    if (gOledPanelHandle != NULL)
-    {
-        err = esp_lcd_panel_disp_on_off(gOledPanelHandle, false);
-        if ((err != ESP_OK) && (first_error == ESP_OK))
-        {
-            first_error = err;
+void oled_periodique(uint32_t now) {
+    if(!present){if((uint32_t)(now-dernier_essai)>=2000){dernier_essai=now;(void)oled_initialiser();}return;}
+    for(unsigned n=0;n<8;n++) {
+        unsigned p=prochaine;prochaine=(uint8_t)((prochaine+1)%8);
+        if(!(force&(1U<<p)) && memcmp(image[p],envoyee[p],128)==0)continue;
+        uint8_t c[]={(uint8_t)(0xB0|p),0x02,0x10},data[129];data[0]=0x40;memcpy(data+1,image[p],128);
+        if(!commande(c,sizeof(c)) || i2c_master_transmit(device,data,sizeof(data),30)!=ESP_OK) {
+            present=false;erreurs++;dernier_essai=now;return;
         }
-
-        err = esp_lcd_panel_del(gOledPanelHandle);
-        if ((err != ESP_OK) && (first_error == ESP_OK))
-        {
-            first_error = err;
-        }
-        gOledPanelHandle = NULL;
+        memcpy(envoyee[p],image[p],128);force&=(uint8_t)~(1U<<p);return;
     }
-
-    if (gOledIoHandle != NULL)
-    {
-        err = esp_lcd_panel_io_del(gOledIoHandle);
-        if ((err != ESP_OK) && (first_error == ESP_OK))
-        {
-            first_error = err;
-        }
-        gOledIoHandle = NULL;
-    }
-
-    gOledInitialized = false;
-    gOledI2cAddress = 0U;
-
-    return first_error;
 }
-
-esp_err_t Oled_Clear(void)
-{
-    if (!gOledInitialized || (gOledPanelHandle == NULL))
-    {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    memset(gOledFrameBuffer, 0, sizeof(gOledFrameBuffer));
-
-    return esp_lcd_panel_draw_bitmap(gOledPanelHandle,
-                                     0,
-                                     0,
-                                     SYSTEM_OLED_WIDTH,
-                                     SYSTEM_OLED_HEIGHT,
-                                     gOledFrameBuffer);
-}
-
-esp_err_t Oled_TestPattern(void)
-{
-    uint16_t x;
-    uint16_t y;
-
-    if (!gOledInitialized || (gOledPanelHandle == NULL))
-    {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    memset(gOledFrameBuffer, 0, sizeof(gOledFrameBuffer));
-
-    for (x = 0U; x < SYSTEM_OLED_WIDTH; x++)
-    {
-        Oled_SetPixel(x, 0U, true);
-        Oled_SetPixel(x, SYSTEM_OLED_HEIGHT - 1U, true);
-    }
-
-    for (y = 0U; y < SYSTEM_OLED_HEIGHT; y++)
-    {
-        Oled_SetPixel(0U, y, true);
-        Oled_SetPixel(SYSTEM_OLED_WIDTH - 1U, y, true);
-    }
-
-    for (x = 0U; x < SYSTEM_OLED_WIDTH; x++)
-    {
-        Oled_SetPixel(x, SYSTEM_OLED_HEIGHT / 2U, true);
-    }
-
-    for (y = 0U; y < SYSTEM_OLED_HEIGHT; y++)
-    {
-        Oled_SetPixel(SYSTEM_OLED_WIDTH / 2U, y, true);
-    }
-
-    return esp_lcd_panel_draw_bitmap(gOledPanelHandle,
-                                     0,
-                                     0,
-                                     SYSTEM_OLED_WIDTH,
-                                     SYSTEM_OLED_HEIGHT,
-                                     gOledFrameBuffer);
-}
-
-esp_err_t Oled_ShowCounter(int32_t value)
-{
-    char value_text[16];
-    size_t length;
-    uint8_t scale;
-    uint16_t character_width;
-    uint16_t spacing;
-    uint16_t total_width;
-    uint16_t x;
-    uint16_t y;
-    size_t i;
-
-    if (!gOledInitialized || (gOledPanelHandle == NULL))
-    {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    snprintf(value_text, sizeof(value_text), "%ld", (long)value);
-    length = strlen(value_text);
-
-    if (length <= 5U)
-    {
-        scale = 3U;
-    }
-    else if (length <= 10U)
-    {
-        scale = 2U;
-    }
-    else
-    {
-        scale = 1U;
-    }
-
-    character_width = (uint16_t)(5U * scale);
-    spacing = scale;
-    total_width = (uint16_t)((length * character_width) + ((length - 1U) * spacing));
-
-    x = (SYSTEM_OLED_WIDTH > total_width) ?
-        (uint16_t)((SYSTEM_OLED_WIDTH - total_width) / 2U) : 0U;
-    y = (uint16_t)((SYSTEM_OLED_HEIGHT - (7U * scale)) / 2U);
-
-    memset(gOledFrameBuffer, 0, sizeof(gOledFrameBuffer));
-
-    for (i = 0U; i < length; i++)
-    {
-        Oled_DrawCharacter(x, y, value_text[i], scale);
-        x = (uint16_t)(x + character_width + spacing);
-    }
-
-    return esp_lcd_panel_draw_bitmap(gOledPanelHandle,
-                                     0,
-                                     0,
-                                     SYSTEM_OLED_WIDTH,
-                                     SYSTEM_OLED_HEIGHT,
-                                     gOledFrameBuffer);
-}
-
-bool Oled_IsInitialized(void)
-{
-    return gOledInitialized;
-}
-
-uint8_t Oled_GetI2cAddress(void)
-{
-    return gOledI2cAddress;
-}
-
-/*===============================================================================================
-FIN DU FICHIER
-===============================================================================================*/

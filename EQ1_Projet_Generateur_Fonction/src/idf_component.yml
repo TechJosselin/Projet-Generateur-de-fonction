@@ -1,3 +1,0 @@
-dependencies:
-  idf: ">=6.1.0"
-  tny-robotics/sh1106-esp-idf: "^1.0.2"

@@ -1,0 +1,13 @@
+# Local host tests and build logs. Reference reports belong in docs/validation/.
+/build/
+/.venv/
+**/__pycache__/
+*.py[cod]
+
+# PlatformIO and generated ESP-IDF configuration; keep sdkconfig.defaults.
+**/.pio/
+**/managed_components/
+**/sdkconfig
+**/sdkconfig.old
+**/sdkconfig.seeed_xiao_esp32c6
+**/sdkconfig.seeed_xiao_esp32c6.old
