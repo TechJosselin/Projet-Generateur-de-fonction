@@ -2,7 +2,7 @@ name: Firmware and native tests
 
 on:
   push:
-    branches: [main, integration/full-system, 'finalisation/**']
+    branches: [main, integration/full-system, 'finalisation/**', 'fix/**']
     paths:
       - 'EQ1_Projet_Generateur_Fonction/**'
       - 'tools/**'

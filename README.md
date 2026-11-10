@@ -1,8 +1,8 @@
 # Générateur de fonctions — CFPT Équipe 1
 
-Firmware C / ESP-IDF pour **Seeed Studio XIAO ESP32-C6**. Branche de finalisation :
-`finalisation/p02-p11`, issue de `finalisation/p01-socle` au commit `aae8066`.
-Les branches `main` et `integration/full-system` ne sont pas remplacées.
+Firmware C / ESP-IDF pour **Seeed Studio XIAO ESP32-C6**.
+Branche expérimentale de mesures : `fix/calibration-firmware-analogique`,
+dérivée de `main`. Ni `main` ni `integration/full-system` ne sont modifiées.
 
 ## État de livraison
 
@@ -12,14 +12,23 @@ les tâches matérielles ouvertes sont dans [VALIDATION.md](docs/VALIDATION.md).
 Le comportement sans profil a été corrigé après ce bilan : voir
 [le correctif DDS sans profil](docs/CORRECTION_DDS_SANS_PROFIL.md).
 
-**Aucun profil analogique réel n'est livré.** Avec les deux MCP45HV51
-disponibles, le firmware pilote désormais le gain et l'offset avec un **modèle
-nominal non mesuré** : AD9833 supposé 600 mVpp (découplage C1/R11 du DC de
-320 mV), U1 x50, sommateur unitaire, EPOT offset entre ±15 V. Les codes sont
-calculés pour chaque signal ; les tensions affichées avec `~` sont des
-estimations, pas une calibration ni des valeurs certifiées à la BNC.
-La calibration réelle reste prioritaire. Si les EPOT manquent, le repli
-`DDS SEUL` conserve l'activation forme/fréquence sans réglage analogique.
+**Aucun profil analogique reel n'est livre.** Le modele provisoire a ete
+actualise pour le montage sur breadboard : CH2 = 715,26 mVpp (SIN 10 kHz)
+et premier THS4032 configure a gain x2 (1 kOhm / 1 kOhm). Le calcul utilise
+715 mVpp et une division de tension MCP45HV51 supposee ideale : ce n'est
+**pas une calibration de la sortie VOUT**. Le plafond mathematique nominal
+est de 1430 mVpp. Les prescriptions d'amplitude plus grandes retournent
+`PLAGE`, sans activation de la sortie. Pour les 10 presets initiaux,
+les signaux 1, 4 et 9 passent ce controle theorique ; leur amplitude et
+leur offset reels ne sont pas garantis. Les autres formes et frequences
+n'ont pas ete caracterisees.
+
+En mode `NOM`, l'ecran affiche les **consignes** `A=` et `O=`,
+pas les estimations quantifiees. Une consigne de zero reste `0 V` ;
+le code offset 128 equivaut seulement a **+59 mV estimes** selon
+l'hypothese +/-15 V. Les lectures CH4 ne suffisent pas a calibrer l'offset.
+Un profil reel mesure a toujours priorite. Sans EPOT, `DDS SEUL`
+continue de signifier forme/frequence uniquement.
 
 Détails, équations et risques : [modèle nominal](docs/MODELE_NOMINAL.md).
 
@@ -36,7 +45,7 @@ préalablement sauvegardées :
 
 ```sh
 git fetch origin
-git switch finalisation/p02-p11
+git switch fix/calibration-firmware-analogique
 git pull --ff-only origin finalisation/p02-p11
 python -m venv .venv
 ```
@@ -96,11 +105,11 @@ Sans profil mais avec les EPOT présents, le résultat ressemble à :
 ```text
 S1 SIN / NOM
 F 10kHz
-A~1.059Vpp
-O~+0.059V
+A=1.000Vpp
+O=+0.000V
 ```
 
-Le signe `~` signifie **calculé mais non mesuré**. Sans EPOT disponibles,
+Le signe `=` designe la **consigne** ; le bandeau `NOM` indique que la sortie reste non calibree. Sans EPOT disponibles,
 la fiche conserve `DDS SEUL`, `A NON REGLEE`, `O NON REGLE`.
 Les trois états peuvent être distingués par USB. Un état actif ne prouve
 jamais la présence d'une tension correcte à la BNC.

@@ -1,50 +1,79 @@
-# Modèle nominal de commande gain / offset (30 octobre 2026)
+# Modèle nominal gain / offset — révision de la breadboard (10 novembre 2026)
 
-## Hypothèses fournies
+## Relevé expérimental
 
-- Sortie AD9833 : 600 mVpp, offset +320 mV (hypothèse provisoire pour SIN/TRI/CAR).
-- C1 = 10 µF en série et R11 = 220 kΩ vers la masse : couplage AC ;
-  après établissement (τ ≈ 2,2 s), les 320 mV continus sont bloqués.
-- U4 et U3 : NE5532P montés en suiveurs.
-- EPOT gain MCP45HV51-103E/ST : A = sortie U4, B = GND, W = entrée + de U1.
-- U1 THS4032 : non-inverseur, R2 = 490 kΩ, R1 = 10 kΩ :
-  gain = 1 + R2/R1 = 50.
-- EPOT offset MCP45HV51-103E/ST : A = +15 V, B = -15 V, W = entrée + de U3.
-- U2 THS4032 : sommateur non-inverseur R3 = R5 = R4 = R7 = 10 kΩ ;
-  sortie U2 = sortie U1 + sortie U3.
-- LT1206 placé ensuite ; gain unitaire nominal supposé et éventuelles
-  protections/atténuations de sortie **non spécifiées**.
+Le catalogue conserve les 10 signaux du cahier des charges : en particulier,
+**signal 1 = sinus 1 Vpp, 10 kHz, offset demandé 0 V**.
 
-## Conversion de la consigne en codes 8 bits
+Essai des sorties AD9833 et MCP45HV51 avec les étages suivants déconnectés
+et les sondes d'oscilloscope x10 :
 
-```text
-gain_code   = arrondi(amplitude_mvpp * 255 / 30000)
-offset_code = arrondi((offset_mv + 15000) * 255 / 30000)
-A_estimee   = arrondi(gain_code * 30000 / 255) mVpp
-O_estime    = -15000 + arrondi(offset_code * 30000 / 255) mV
-```
+| Point | Vmax | Vmin | Vpp obtenu par différence |
+|---|---:|---:|---:|
+| CH1 AD9833 avant C1 | +748,53 mV | +80,20 mV | 668,33 mV |
+| CH2 après C1 | +371,86 mV | −343,40 mV | 715,26 mV |
+| CH3 PW0 Gain, ancien code 9 | +49,320 mV | −42,853 mV | 92,173 mV |
+| CH4 PW0 Offset, ancien code 128 | +212,04 mV | +73,746 mV | 138,29 mV, dominé par des pics |
 
-L'absence de code 127,5 pour le zéro idéal produit, avec l'arrondi choisi,
-un offset théorique de +59 mV pour une consigne de 0 V. Un pas représente
-environ 117,65 mVpp ou 117,65 mV d'offset dans ces hypothèses.
+Le milieu des extrema de CH4 est +142,89 mV : **ce n'est pas la moyenne DC**.
+Le montage U1 → sommateur → LT1206 n'a pas été caractérisé lors de ces mesures.
+La différence Vpp entre CH1 et CH2 demande une nouvelle mesure contrôlée.
 
-| Signal | Gain (code) | Offset (code) | Amplitude nominale (mVpp) | Offset nominal (mV) |
-|---|---:|---:|---:|---:|
-| 1 | 9 | 128 | 1059 | +59 |
-| 2 | 43 | 128 | 5059 | +59 |
-| 3 | 17 | 153 | 2000 | +3000 |
-| 4 | 2 | 213 | 235 | +10059 |
-| 5 | 170 | 128 | 20000 | +59 |
-| 6 | 34 | 128 | 4000 | +59 |
-| 7 | 43 | 85 | 5059 | -5000 |
-| 8 | 85 | 128 | 10000 | +59 |
-| 9 | 9 | 128 | 1059 | +59 |
-| 10 | 34 | 179 | 4000 | +6059 |
+## Hypothèses provisoires du calcul
 
-Le firmware refuse une consigne si les pics **demandés ou calculés**
-dépassent mathématiquement ±15 V. Cette garde ne prouve pas que les
-amplificateurs puissent atteindre les rails, ni que la source d'alimentation
-puisse fournir le courant exigé par la charge.
+- C1 supprime la composante DC du sinus, visible entre CH1 et CH2. NE5532P
+  toujours supposé suiveur ; son comportement chargé doit être vérifié.
+- Source AD9833 après couplage : **715 mVpp** (arrondi de CH2 à 10 kHz).
+  Ce chiffre n'est **pas connu** pour les autres formes/fréquences.
+- MCP45HV51 Gain : diviseur supposé idéal avec PB0 = GND, PA0 = source
+  et PW0 = entrée du THS4032. La mesure de CH3 au code 9 (~92 mVpp)
+  ne suit pas le rapport idéal 9/255 (~25 mVpp). Une mesure unique ne permet
+  donc **pas de calibrer** la loi code → amplitude.
+- Premier THS4032 : deux résistances 1 kOhm / 1 kOhm, gain non-inverseur
+  **2**. L'ancien modèle 490 kOhm / 10 kOhm, gain **50**, est abandonné
+  pour cette version du montage.
+- MCP45HV51 Offset : PA0/PB0 supposés respectivement +15 V et −15 V ;
+  le rapport idéal code/255 et les tensions réelles PW0 restent à vérifier.
+- Sommateur non-inverseur : gain unitaire de sommation sous réserve
+  du câblage, des suiveurs, de l'absence d'oscillation et de la charge.
+- LT1206 : non inclus dans les mesures ; il n'est pas possible d'en
+  déduire une amplitude ou un offset réels à la BNC.
+
+## Conversion 8 bits sans profil mesuré
+
+    Vpp_max_provisoire = 715 mVpp * 2 = 1430 mVpp
+    code_gain = arrondi(amplitude_mVpp * 255 / 1430)
+    code_offset = arrondi((offset_mV + 15000) * 255 / 30000)
+    A_estimee_mVpp = arrondi(code_gain * 1430 / 255)
+    O_estime_mV = -15000 + arrondi(code_offset * 30000 / 255)
+
+Le logiciel refuse `GF_PLAGE` si l'amplitude demandée dépasse
+**1430 mVpp** ou si l'excursion demandée/estimée sort des rails ±15 V.
+Ce n'est qu'un contrôle mathématique ; la tension de sortie réelle n'est
+pas garantie.
+
+Le zéro d'offset correspondrait au code 127,5, inaccessible en 8 bits.
+Le code choisi est 128, soit +58,82 mV **estimés**, mais la **consigne du
+signal 1 reste 0 V**. Le pas idéal de cette hypothèse est 117,65 mV.
+Le contrôle physique de l'offset nécessite au minimum une mesure `Mean`
+en couplage DC, puis un étalonnage à plusieurs codes.
+
+| Signal | Consigne du cahier des charges | Code Gain | Code Offset | Résultat nominal |
+|---|---|---:|---:|---|
+| 1 SIN 10 kHz | 1 Vpp, 0 V | 178 | 128 | ~998 mVpp, ~+59 mV, non mesurés en VOUT |
+| 2 SIN 1 MHz | 5 Vpp, 0 V | — | — | `GF_PLAGE` |
+| 3 SIN 1 kHz | 2 Vpp, +3 V | — | — | `GF_PLAGE` |
+| 4 SIN 500 Hz | 0,2 Vpp, +10 V | 36 | 213 | ~202 mVpp, ~+10059 mV, non mesurés en VOUT |
+| 5 TRI 5 kHz | 20 Vpp, 0 V | — | — | `GF_PLAGE` |
+| 6 TRI 100 Hz | 4 Vpp, 0 V | — | — | `GF_PLAGE` |
+| 7 TRI 200 kHz | 5 Vpp, −5 V | — | — | `GF_PLAGE` |
+| 8 CAR 50 Hz | 10 Vpp, 0 V | — | — | `GF_PLAGE` |
+| 9 CAR 300 Hz | 1 Vpp, 0 V | 178 | 128 | ~998 mVpp, ~+59 mV ; forme non mesurée |
+| 10 CAR 1 kHz | 4 Vpp, +6 V | — | — | `GF_PLAGE` |
+
+L'affichage OLED NOM présente `A=` et `O=` avec les **consignes**
+du catalogue, et non les prédictions ; il ne présente donc plus
+`+0.059 V` comme un offset qui aurait été demandé par l'utilisateur.
 
 ## Modes et contrat d'état
 
@@ -64,33 +93,34 @@ EEPROM ne changent pas. Aucune édition par encodeur.
 
 ## Vérifications physiques avant d'utiliser la BNC
 
-1. L'entrée DC +320 mV n'est éliminée par C1/R11 qu'en régime établi :
-   τ ≈ 2,2 s et stabilisation de plusieurs constantes de temps. Des
-   transitoires à la mise sous tension peuvent être amplifiés et
-   saturer les étages ; aucune mise en sourdine LT1206 n'est câblée
-   ou garantie par cette version.
-2. Le courant de polarisation du NE5532P dans R11=220 kΩ peut créer
-   une tension continue parasite notable, amplifiée ensuite par U1.
-3. La bande passante des EPOT 10 kΩ et la stabilité de U1 avec une
-   contre-réaction de 490 kΩ doivent être mesurées, surtout aux
-   fréquences de 200 kHz et 1 MHz. Le modèle 600 mVpp commun
-   aux trois formes n'est pas vérifié.
-4. LT1206 : il s'agit d'un amplificateur à **contre-réaction en courant**.
-   Le montage buffer AV=1 constructeur exige une résistance RF choisie
-   selon la charge et l'alimentation ; **ne pas relier directement OUT
-   à l'entrée inverseuse**. Le datasheet illustre RF ≈ 825 Ω dans un
-   essai à ±15 V et charge 50 Ω, valeur à qualifier dans le montage.
-   Contrôler SHDN, COMP, découplages et protection de la sortie.
-5. La source TRACO ±15 V de 65 mA par branche mentionnée dans le cahier
-   des charges ne peut pas fournir sans vérification 20 Vpp sous 50 Ω :
-   ce cas exige 200 mA crête sur la charge, hors consommations internes.
-   Tester d'abord avec l'entrée oscilloscope 1 MΩ et sans charge sensible.
-6. Le MCP45HV51 doit disposer de ses alimentations analogiques ±15 V
-   et logique appropriées, des bonnes connexions A/B/W, WLAT et SHDN.
-   Une réponse I2C OK ne prouve pas les tensions effectivement obtenues.
+1. Valider les tensions d'alimentation des NE5532P, THS4032, MCP45HV51
+   et du LT1206. Découpler les AOP rapides au plus près de leurs broches.
+2. Mesurer la sortie du suiveur NE5532P, puis PA0/PB0/PW0 du MCP Gain pour
+   plusieurs codes (par ex. 0, 32, 64, 128, 192, 255), à 10 kHz, d'abord
+   sans charge puis avec l'étage suivant. Ne pas extrapoler un seul point.
+3. Mesurer au multimètre DC et avec la fonction Mean de l'oscilloscope
+   PA0/PB0/PW0 du MCP Offset pour des codes autour de 127/128, ainsi que
+   pour des codes plus éloignés. Contrôler le bruit et la linéarité.
+4. Rebrancher ensuite THS4032 et mesurer séparément U1 et le sommateur ;
+   ne pas utiliser les amplitudes théoriques comme valeurs acquises.
+   La stabilité HF sur breadboard reste problématique avec le THS4032.
+5. Le LT1206 fonctionne à contre-réaction en courant ; choisir sa
+   résistance de contre-réaction selon la fiche technique et vérifier
+   SHDN, COMP, découplages, surcharge et échauffement. Ne pas court-circuiter
+   directement OUT et entrée inverseuse pour le gain unitaire.
+6. La source TRACO ±15 V du cahier des charges fournit 65 mA par branche.
+   Une charge 50 ohms à 20 Vpp exigerait 200 mA crête : cette sortie
+   doit donc être qualifiée séparément. Essais initiaux sur 1 MOhm.
+7. Les états `NOMINAL_NON_CALIBRE` et `DDS_SEUL_COMMANDE` ne signifient
+   ni une valeur VOUT certifiée ni une sortie physiquement déconnectée
+   après OFF. Ne pas raccorder de charge sensible avant validation.
 
-Ces résultats ne sont pas une calibration métrologique. Les coefficients
-du modèle doivent être remplacés ou complétés par des mesures sur la carte.
+**À obtenir pour la calibration réelle** : tableaux code MCP Gain →
+amplitude VOUT (au moins plusieurs codes et fréquences, séparément
+pour sinus/triangle/carré), code MCP Offset → moyenne DC VOUT,
+amplitude/offset après suiveurs, sommateur et LT1206, mesures sur charge
+réelle. Ces données pourront alimenter le profil de calibration existant
+plutôt que remplacer un facteur global approximatif.
 
 Sources techniques :
 - AD9833 : https://www.analog.com/media/en/technical-documentation/data-sheets/ad9833.pdf
