@@ -60,16 +60,25 @@ static void conversion(void) {
     calibration_t p=fixture(),vide={0},recup;analogique_commande_t c={0};
     uint8_t image[512],other[512];signal_config_t s=*signaux_lire(0);
     CHECK(analogique_convertir(&vide,&s,&c)==GF_NON_CALIBRE);
-    const uint8_t codes_gain[]={9,43,17,2,170,34,43,85,9,34};
-    const uint8_t codes_off[]={128,128,153,213,128,128,85,128,128,179};
+    /* x2 et ~715 mVpp donnent une limite nominale de ~1430 mVpp. */
     for(size_t i=0;i<SIGNAL_INIT_COUNT;i++) {
-        s=*signaux_lire(i);CHECK(analogique_convertir_nominal(&s,&c)==GF_OK);
-        CHECK(c.gain==codes_gain[i] && c.offset==codes_off[i]);
-        CHECK(2*(int64_t)c.offset_estime_mv-c.amplitude_estimee_mvpp>=-30000);
-        CHECK(2*(int64_t)c.offset_estime_mv+c.amplitude_estimee_mvpp<=30000);
+        s=*signaux_lire(i);
+        gf_result_t r=analogique_convertir_nominal(&s,&c);
+        if(i==0 || i==3 || i==8) {
+            CHECK(r==GF_OK);
+            CHECK(2*(int64_t)c.offset_estime_mv-c.amplitude_estimee_mvpp>=-30000);
+            CHECK(2*(int64_t)c.offset_estime_mv+c.amplitude_estimee_mvpp<=30000);
+            if(i==0 || i==8) {
+                CHECK(c.gain==178 && c.offset==128);
+                CHECK(c.amplitude_estimee_mvpp==998 && c.offset_estime_mv==59);
+            } else {
+                CHECK(c.gain==36 && c.offset==213);
+                CHECK(c.amplitude_estimee_mvpp==202 && c.offset_estime_mv==10059);
+            }
+        } else CHECK(r==GF_PLAGE);
     }
-    s=*signaux_lire(0);CHECK(analogique_convertir_nominal(&s,&c)==GF_OK);
-    CHECK(c.amplitude_estimee_mvpp==1059 && c.offset_estime_mv==59);
+    s=*signaux_lire(0);
+    CHECK(s.amplitude_mvpp==1000 && s.offset_mv==0 && s.frequence_hz==10000);
     CHECK(analogique_convertir_nominal(NULL,&c)==GF_ARGUMENT);
     CHECK(analogique_convertir_nominal(&s,NULL)==GF_ARGUMENT);
     s.amplitude_mvpp=20000;s.offset_mv=10000;
@@ -149,23 +158,30 @@ static void boot(bool cal) {
 }
 static void pompe(uint32_t debut,uint32_t fin){for(uint32_t t=debut;t<fin;t+=10)integration_periodique(t);}
 static void nominal_sans_calibration(void) {
-    const uint8_t gains[]={9,43,17,2,170,34,43,85,9,34};
-    const uint8_t offs[]={128,128,153,213,128,128,85,128,128,179};
     vierge();boot(false);uint32_t rev=integration_statut()->revision;
     for(size_t i=0;i<SIGNAL_INIT_COUNT;i++) {
         CHECK(integration_choisir(i)==GF_OK);CHECK(!fake.actif);
-        memset(&fake,0,sizeof(fake));CHECK(integration_activer()==GF_OK);
-        CHECK(fake.actif && fake.appels==5 && !strcmp(fake.sequence,"SDGOE"));
-        CHECK(!strcmp(integration_nom_etat(),"NOMINAL_NON_CALIBRE"));
-        CHECK(integration_statut()->nominal_courant && !integration_statut()->commande_courante);
-        CHECK(integration_statut()->codes.gain==gains[i] && integration_statut()->codes.offset==offs[i]);
-        CHECK(!integration_statut()->derniere_valide && !integration_calibration()->approuve);
+        memset(&fake,0,sizeof(fake));
+        gf_result_t r=integration_activer();
+        if(i==0 || i==3 || i==8) {
+            CHECK(r==GF_OK && fake.actif && fake.appels==5 && !strcmp(fake.sequence,"SDGOE"));
+            CHECK(!strcmp(integration_nom_etat(),"NOMINAL_NON_CALIBRE"));
+            CHECK(integration_statut()->nominal_courant && !integration_statut()->commande_courante);
+            CHECK(integration_statut()->codes.gain==(i==3?36:178));
+            CHECK(integration_statut()->codes.offset==(i==3?213:128));
+            CHECK(!integration_statut()->derniere_valide && !integration_calibration()->approuve);
+        } else {
+            CHECK(r==GF_PLAGE && fake.appels==0 && !fake.actif);
+            CHECK(!integration_statut()->nominal_courant);
+        }
         CHECK(integration_statut()->revision==rev);
     }
-    signal_config_t s=*signaux_lire(9);s.frequence_hz++;
-    CHECK(integration_modifier(9,s,0)==GF_OK);CHECK(!fake.actif);
+    signal_config_t s=*signaux_lire(0);s.frequence_hz++;
+    CHECK(integration_choisir(0)==GF_OK);
+    CHECK(integration_modifier(0,s,0)==GF_OK && !fake.actif);
     CHECK(!integration_statut()->nominal_courant);
-    CHECK(integration_activer()==GF_OK);CHECK(integration_arreter()==GF_OK && !fake.actif);
+    CHECK(integration_activer()==GF_OK);
+    CHECK(integration_arreter()==GF_OK && !fake.actif);
     for(unsigned fail=1;fail<=5;fail++) {
         vierge();boot(false);fake.echec=fail;
         CHECK(integration_activer()==GF_IO && integration_statut()->etat==SYS_DEFAUT);
@@ -203,7 +219,7 @@ static void nominal_sans_calibration(void) {
     hw=backend();hw.epots=false;integration_initialiser_avec(hw,io());
     CHECK(integration_importer_calibration(img)==GF_OK && integration_choisir(0)==GF_OK);
     memset(&fake,0,sizeof(fake));CHECK(integration_activer()==GF_ABSENT && fake.appels==0);
-    puts("PASS nominal : 10 presets, EPOT, pannes, plage et priorite calibration.");
+    puts("PASS nominal x2 : plages, EPOT, pannes et priorite calibration.");
 }
 static void coordination(void) {
     vierge();boot(false);CHECK(integration_activer()==GF_OK);CHECK(!strcmp(fake.sequence,"SDGOE"));

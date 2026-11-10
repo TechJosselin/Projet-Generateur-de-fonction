@@ -127,27 +127,35 @@ static void sans_calibration(void) {
     for(unsigned i=0;i<SIGNAL_INIT_COUNT;i++) {
         initialiser(false);uint32_t revision=integration_statut()->revision;
         plus(i);clic();dessin(0);
-        CHECK(activations==1 && commandes==1 && epots==2);
-        CHECK(strstr(lignes[0],"/ NOM") && grandes[1][1]=='~' && grandes[2][1]=='~');
-        CHECK(integration_statut()->nominal_courant && !integration_statut()->commande_courante);
-        CHECK(!integration_calibration()->approuve);
+        if(i==0 || i==3 || i==8) {
+            CHECK(activations==1 && commandes==1 && epots==2);
+            CHECK(strstr(lignes[0],"/ NOM"));
+            CHECK(integration_statut()->nominal_courant && !integration_statut()->commande_courante);
+            CHECK(grandes[1][1]=='=' && grandes[2][1]=='=');
+            if(i==0)CHECK(!strcmp(grandes[1],"A=1.000Vpp") && !strcmp(grandes[2],"O=+0.000V"));
+            CHECK(!integration_calibration()->approuve);
+            clic();dessin(1);CHECK(strstr(lignes[0],"NOM S") && activations==1);
+        } else {
+            CHECK(activations==0 && commandes==0 && epots==0);
+            CHECK(!strcmp(lignes[0],"SORTIE NON ACTIVEE"));
+            CHECK(!strcmp(lignes[2],"PLAGE"));
+        }
         CHECK(integration_statut()->revision==revision);
-        clic();dessin(1);CHECK(strstr(lignes[0],"NOM S") && activations==1);
         menu_traiter(UI_APPUI_LONG);dessin(2);CHECK(strstr(lignes[0],"OFF"));
     }
     initialiser(false);clic();char reponse[512];
     usb("$STATE?#",0,reponse,sizeof(reponse));CHECK(strstr(reponse,"NOMINAL_NON_CALIBRE"));
-    usb("$1:SIN:1500:+250:12345#",1,reponse,sizeof(reponse));
+    usb("$1:SIN:1200:+250:12345#",1,reponse,sizeof(reponse));
     CHECK(strstr(reponse,"$OK:RAM:") && integration_statut()->etat!=SYS_ACTIF_COMMANDE);
     clic();clic();dessin(2);CHECK(!strcmp(grandes[0],"F 12345Hz") && epots==4);
-    usb("$1?#",3,reponse,sizeof(reponse));CHECK(!strcmp(reponse,"$1:SIN:1500:+250:12345#"));
-    /* Importer un profil ne reactive pas tout seul la sortie. */
+    CHECK(!strcmp(grandes[1],"A=1.200Vpp") && !strcmp(grandes[2],"O=+0.250V"));
+    usb("$1?#",3,reponse,sizeof(reponse));CHECK(!strcmp(reponse,"$1:SIN:1200:+250:12345#"));
     calibration_t p=fixture();uint8_t image[CAL_IMAGE_SIZE];
     CHECK(calibration_encoder(&p,image)==GF_OK);CHECK(integration_importer_calibration(image)==GF_OK);
     dessin(300);CHECK(strstr(lignes[0],"OFF"));
     clic();clic();dessin(301);CHECK(strstr(lignes[0],"/ ON") && epots==6);
-    CHECK(!strcmp(grandes[1],"A 1.500Vpp") && !strcmp(grandes[2],"O +0.250V"));
-    puts("PASS UI nominal : codes A/O estimes, USB et passage au mode calibre.");
+    CHECK(!strcmp(grandes[1],"A 1.200Vpp") && !strcmp(grandes[2],"O +0.250V"));
+    puts("PASS UI nominal x2 : consignes, refus hors plage, profil et USB.");
 }
 static void lecture_seule_et_usb(void) {
     initialiser(true);signal_config_t copie[SIGNAL_INIT_COUNT];

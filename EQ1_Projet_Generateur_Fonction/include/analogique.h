@@ -31,7 +31,13 @@ gf_result_t calibration_encoder(const calibration_t *p,uint8_t image[CAL_IMAGE_S
 gf_result_t calibration_decoder(const uint8_t image[CAL_IMAGE_SIZE],calibration_t *p);
 gf_result_t analogique_convertir(const calibration_t *p, const signal_config_t *s,
                                 analogique_commande_t *commande);
-/* Conversion nominale sans profil: AD9833 600mVpp, U1 x50, offset EPOT +/-15V. */
+/* Mode nominal provisoire, PAS une calibration de VOUT.
+ * Mesure CH2 : SIN 10 kHz ~715 mVpp apres condensateur.
+ * U1 THS4032 avec 1 kOhm / 1 kOhm => gain non inverseur x2.
+ * Les autres formes/frequences et la loi MCP45HV51 ne sont pas calibrees. */
+#define NOMINAL_DDS_MVPP 715
+#define NOMINAL_GAIN_U1 2
+#define NOMINAL_OFFSET_RAIL_MV 15000
 gf_result_t analogique_convertir_nominal(const signal_config_t *s,
                                         analogique_commande_t *commande);
 #endif

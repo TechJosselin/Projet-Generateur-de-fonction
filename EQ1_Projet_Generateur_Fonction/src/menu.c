@@ -138,11 +138,12 @@ static void afficher(void) {
             oled_texte_grand(4,31,"A NON REGLEE");
             oled_texte_grand(4,48,"O NON REGLE");
         } else if(nominal && st->selection==index_signal) {
-            /* ~ : estimation des codes commandes, pas mesure VOUT. */
-            signaux_formater_tension(v,sizeof(v),st->codes.amplitude_estimee_mvpp,false);
-            snprintf(b,sizeof(b),"A~%spp",v);oled_texte_grand(4,31,b);
-            signaux_formater_tension(v,sizeof(v),st->codes.offset_estime_mv,true);
-            snprintf(b,sizeof(b),"O~%s",v);oled_texte_grand(4,48,b);
+            /* Afficher les CONSIGNES demandees, pas des predictions en VOUT.
+             * Le bandeau NOM rappelle l'absence de calibration reelle. */
+            signaux_formater_tension(v,sizeof(v),s->amplitude_mvpp,false);
+            snprintf(b,sizeof(b),"A=%spp",v);oled_texte_grand(4,31,b);
+            signaux_formater_tension(v,sizeof(v),s->offset_mv,true);
+            snprintf(b,sizeof(b),"O=%s",v);oled_texte_grand(4,48,b);
         } else {
             signaux_formater_tension(v,sizeof(v),s->amplitude_mvpp,false);
             snprintf(b,sizeof(b),"A %spp",v);oled_texte_grand(4,31,b);
