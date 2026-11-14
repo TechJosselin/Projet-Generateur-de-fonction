@@ -155,6 +155,8 @@ L'acquittement `OK:RAM` n'est pas une preuve de persistance.
 
 ## Documents et organisation
 
+- [Audit de conformité au cahier des charges](docs/CONFORMITE_FIRMWARE_CAHIER_DES_CHARGES.md) : état du firmware, USB, EEPROM, écarts et validations restantes.
+- [Protocole de test USB série et EEPROM](docs/PROTOCOLE_TEST_USB_SERIE.md) : commandes, réponses attendues, recette de persistance et fiche de résultats.
 - [Modèle nominal](docs/MODELE_NOMINAL.md) : calcul des EPOT, hypothèses, risques et validation.
 - [Correctif DDS sans profil](docs/CORRECTION_DDS_SANS_PROFIL.md) : comportement,
   limites et essais ajoutés pour supprimer le blocage de la génération DDS.
