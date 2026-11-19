@@ -45,9 +45,9 @@ La racine du depot contient un fichier `.clang-format` correspondant a cette con
 Pour uniformiser ulterieurement la presentation des nouveaux changements,
 utiliser `clang-format` dans un **commit distinct**, puis faire une revue des differences.
 
-Les fichiers `tools/refactor_readability.js` et `tools/convert_ternaries.js` conservent
-la trace des transformations de migration initiales. Ce ne sont pas des services du
-firmware et ils n'ont pas vocation a etre executes au demarrage.
+Les scripts temporaires utilises pour la migration ne sont pas conserves dans le depot :
+ils ne font pas partie du produit. Le formatage ulterieur se fait avec `.clang-format`,
+qui constitue la convention de style maintenue.
 
 ## Tests et outils du PC
 
