@@ -1,8 +1,15 @@
+/*==================================================================================================
+ * CFPT - Equipe 1 - Projet generateur de fonctions
+ * MODULE     : HARDWARE_CONFIG.H
+ * DESCRIPTIF : Brochage FICTIF des tests natifs, pas celui du prototype.
+ *==================================================================================================*/
 #ifndef HARDWARE_CONFIG_H
 #define HARDWARE_CONFIG_H
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "driver/spi_master.h"
+
+/*================================= DONNEES DE SIMULATION =========================================*/
 #define SYSTEM_STATUS_LED_GPIO GPIO_NUM_15
 #define SYSTEM_STATUS_LED_ON_LEVEL 0
 #define SYSTEM_STATUS_LED_OFF_LEVEL 1

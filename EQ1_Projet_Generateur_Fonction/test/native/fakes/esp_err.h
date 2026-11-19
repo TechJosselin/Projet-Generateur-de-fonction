@@ -1,3 +1,8 @@
+/*==================================================================================================
+ * CFPT - Equipe 1 - Projet generateur de fonctions
+ * MODULE     : ESP_ERR.H
+ * DESCRIPTIF : Codes ESP-IDF substitues par des entiers de test.
+ *==================================================================================================*/
 #ifndef ESP_ERR_H
 #define ESP_ERR_H
 typedef int esp_err_t;

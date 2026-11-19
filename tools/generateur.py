@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# ==============================================================================================
+# CFPT - Equipe 1 - Generateur de fonctions
+# Client PC du generateur : protocole USB, signaux et calibration.
+# ==============================================================================================
 """Client serie du generateur. Un acquittement RAM ne prouve pas une sauvegarde.
 Usage : python tools/generateur.py --port COM7 list
 Ne pas ouvrir simultanement un moniteur serie sur le meme port.
@@ -13,13 +17,17 @@ import zlib
 from pathlib import Path
 from typing import Any
 
+
 class ProtocolError(RuntimeError):
     pass
 
+
 def integer(value: Any, low: int, high: int, field: str) -> int:
+    """Valide un entier dans les limites demandees."""
     if type(value) is not int or not low <= value <= high:
         raise ValueError(f"{field}: entier attendu dans [{low}, {high}]")
     return value
+
 
 def calibration_image(data: dict[str, Any]) -> bytes:
     """Encode le profil CAL1. Donnees mesurees et approbation explicite requises."""
@@ -64,7 +72,8 @@ def calibration_image(data: dict[str, Any]) -> bytes:
                     raise ValueError('gain=[code,amplitude_mvpp,zero_mv], offset=[code,delta_mv]')
                 code = integer(row[0], 0, 255, 'code')
                 v = integer(row[1], 1 if gain_mode else -30000, 30000, 'tension')
-                codes.append(code); values.append(v)
+                codes.append(code)
+                values.append(v)
                 if gain_mode:
                     zero = integer(row[2], -30000, 30000, 'zero_mv')
                     struct.pack_into('<Bii', b, p+24+9*i, code, v, zero)
@@ -78,14 +87,18 @@ def calibration_image(data: dict[str, Any]) -> bytes:
     struct.pack_into('<I', b, 508, zlib.crc32(b[:508]))
     return bytes(b)
 
+
 class Client:
     """Accepte un port pyserial ou un faux port pour les tests hors materiel."""
+
     def __init__(self, serial_port: Any, timeout: float = 5.0):
+        """Memorise le port et la temporisation des transactions."""
         self.port = serial_port
         self.timeout = timeout
         self.partial = bytearray()
 
     def frame(self) -> str:
+        """Lit une trame complete en ignorant le bruit et les trames incompletes."""
         until = time.monotonic() + self.timeout
         while time.monotonic() < until:
             c = self.port.read(1)
@@ -107,6 +120,7 @@ class Client:
         raise TimeoutError('Aucune trame complete recue avant le delai')
 
     def send(self, frame: str) -> None:
+        """Envoie une trame en acceptant les ecritures serie partielles."""
         raw = frame.encode('ascii')
         if not frame.startswith('$') or not frame.endswith('#') or len(raw) >= 96:
             raise ValueError('Trame invalide/trop longue')
@@ -120,10 +134,12 @@ class Client:
                 pos += n
 
     def request(self, frame: str) -> str:
+        """Envoie une commande puis attend sa reponse."""
         self.send(frame)
         return self.frame()
 
     def ack(self, frame: str) -> int:
+        """Retourne la revision d'une reponse d'acquittement valide."""
         answer = self.request(frame)
         parts = answer[1:-1].split(':')
         if len(parts) != 3 or parts[0] != 'OK' or not parts[2].isdigit():
@@ -131,6 +147,7 @@ class Client:
         return int(parts[2])
 
     def state(self) -> dict[str, Any]:
+        """Lit et decode les etats communiques par le firmware."""
         answer = self.request('$STATE?#')
         p = answer[1:-1].split(':')
         if len(p) != 11 or p[0] != 'STATE':
@@ -143,6 +160,7 @@ class Client:
             raise ProtocolError(f'Etat mal forme : {answer}') from exc
 
     def saved(self, revision: int, timeout: float = 15.0) -> dict[str, Any]:
+        """Attend la confirmation EEPROM de la revision concernee."""
         until = time.monotonic()+timeout
         while time.monotonic() < until:
             s = self.state()
@@ -156,6 +174,7 @@ class Client:
         raise TimeoutError('Sauvegarde non confirmee ; les parametres peuvent rester uniquement en RAM')
 
     def signals(self) -> list[str]:
+        """Relit la liste des signaux et verifie que la revision est stable."""
         initial = self.state()
         count = integer(initial['count'], 1, 100, 'nombre de presets')
         self.send('$?#')
@@ -169,6 +188,7 @@ class Client:
         return result
 
     def import_profile(self, image: bytes) -> int:
+        """Transmet la calibration en blocs de 32 octets, avec annulation si echec."""
         if len(image) != 512:
             raise ValueError('Le profil doit contenir exactement 512 octets')
         self.ack('$CAL:BEGIN#')
@@ -185,6 +205,7 @@ class Client:
             raise
 
     def export_profile(self) -> bytes:
+        """Relit les blocs de calibration et en controle le CRC."""
         self.send('$CAL?#')
         result = bytearray(512)
         for offset in range(0, 512, 32):
@@ -201,23 +222,33 @@ class Client:
             raise ProtocolError('CRC calibration invalide')
         return bytes(result)
 
+
 def main() -> int:
+    """Analyse les options CLI et distribue les commandes au client serie."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', required=True, help='COM7, /dev/ttyACM0, ...')
     parser.add_argument('--timeout', type=float, default=5)
     sub = parser.add_subparsers(dest='action', required=True)
     for name in ('state', 'list', 'off', 'on', 'save', 'load'):
         sub.add_parser(name)
-    read = sub.add_parser('read'); read.add_argument('index', type=int)
-    select = sub.add_parser('select'); select.add_argument('index', type=int)
+    read = sub.add_parser('read')
+    read.add_argument('index', type=int)
+    select = sub.add_parser('select')
+    select.add_argument('index', type=int)
     write = sub.add_parser('write')
-    write.add_argument('index', type=int); write.add_argument('shape', choices=['SIN', 'TRI', 'CAR'])
-    write.add_argument('amplitude', type=int); write.add_argument('offset', type=int); write.add_argument('frequency', type=int)
+    write.add_argument('index', type=int)
+    write.add_argument('shape', choices=['SIN', 'TRI', 'CAR'])
+    write.add_argument('amplitude', type=int)
+    write.add_argument('offset', type=int)
+    write.add_argument('frequency', type=int)
     write.add_argument('--ram-only', action='store_true')
     for name in ('cal-import', 'cal-export'):
-        cmd = sub.add_parser(name); cmd.add_argument('path', type=Path)
-    dig = sub.add_parser('digital'); dig.add_argument('channel', type=int, choices=[1, 2])
-    dig.add_argument('frequency', type=int); dig.add_argument('duty', type=int, help='0..1000 ; frequence 0 = OFF')
+        cmd = sub.add_parser(name)
+        cmd.add_argument('path', type=Path)
+    dig = sub.add_parser('digital')
+    dig.add_argument('channel', type=int, choices=[1, 2])
+    dig.add_argument('frequency', type=int)
+    dig.add_argument('duty', type=int, help='0..1000 ; frequence 0 = OFF')
     a = parser.parse_args()
     try:
         if not 0 < a.timeout <= 60:
@@ -225,33 +256,45 @@ def main() -> int:
         import serial
         with serial.Serial(port=None, baudrate=115200, timeout=min(0.1, a.timeout), write_timeout=a.timeout,
                            rtscts=False, dsrdtr=False) as port:
-            port.dtr = False; port.rts = False
-            port.port = a.port; port.open()
+            port.dtr = False
+            port.rts = False
+            port.port = a.port
+            port.open()
             port.reset_input_buffer()
             c = Client(port, a.timeout)
-            if a.action == 'state': print(json.dumps(c.state(), indent=2))
-            elif a.action == 'list': print('\n'.join(c.signals()))
+            if a.action == 'state':
+                print(json.dumps(c.state(), indent=2))
+            elif a.action == 'list':
+                print('\n'.join(c.signals()))
             elif a.action == 'read':
-                integer(a.index, 1, 100, 'index'); print(c.request(f'${a.index}?#'))
+                integer(a.index, 1, 100, 'index')
+                print(c.request(f'${a.index}?#'))
             elif a.action == 'write':
-                integer(a.index, 1, 100, 'index'); integer(a.amplitude, 100, 20000, 'amplitude')
-                integer(a.offset, -10000, 10000, 'offset'); integer(a.frequency, 1, 12000000, 'frequency')
+                integer(a.index, 1, 100, 'index')
+                integer(a.amplitude, 100, 20000, 'amplitude')
+                integer(a.offset, -10000, 10000, 'offset')
+                integer(a.frequency, 1, 12000000, 'frequency')
                 rev = c.ack(f'${a.index}:{a.shape}:{a.amplitude}:{a.offset:+d}:{a.frequency}#')
                 print(f'RAM modifiee : revision {rev}')
-                if not a.ram_only: print(json.dumps(c.saved(rev), indent=2))
+                if not a.ram_only:
+                    print(json.dumps(c.saved(rev), indent=2))
             elif a.action == 'select':
-                integer(a.index, 1, 100, 'index'); print(c.ack(f'$SELECT:{a.index}#'))
+                integer(a.index, 1, 100, 'index')
+                print(c.ack(f'$SELECT:{a.index}#'))
             elif a.action == 'cal-import':
                 image = calibration_image(json.loads(a.path.read_text(encoding='utf-8')))
-                rev = c.import_profile(image); print(json.dumps(c.saved(rev), indent=2))
+                rev = c.import_profile(image)
+                print(json.dumps(c.saved(rev), indent=2))
             elif a.action == 'cal-export':
                 image = c.export_profile()
                 # Refuser d'ecraser silencieusement une calibration existante.
-                with a.path.open('xb') as output: output.write(image)
+                with a.path.open('xb') as output:
+                    output.write(image)
                 print(f'Profil binaire CAL1 : {a.path}')
             elif a.action == 'digital':
                 integer(a.duty, 0, 1000, 'duty')
-                if a.frequency == 0: print(c.ack(f'$DIG:{a.channel}:OFF#'))
+                if a.frequency == 0:
+                    print(c.ack(f'$DIG:{a.channel}:OFF#'))
                 else:
                     integer(a.frequency, 10, 1000000, 'frequency')
                     print(c.ack(f'$DIG:{a.channel}:{a.frequency}:{a.duty}#'))
@@ -262,6 +305,7 @@ def main() -> int:
     except (ImportError, ValueError, KeyError, TypeError, OSError, ProtocolError, TimeoutError) as exc:
         print(f'ERREUR : {exc}', file=sys.stderr)
         return 1
+
 
 if __name__ == '__main__':
     raise SystemExit(main())

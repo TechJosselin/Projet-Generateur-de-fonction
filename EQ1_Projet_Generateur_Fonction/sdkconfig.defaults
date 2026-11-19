@@ -1,8 +1,18 @@
+# ==============================================================================================
+# CFPT - Equipe 1 - Generateur de fonctions
+# Options ESP-IDF du module ESP32-C6.
+# ==============================================================================================
+
+# Taille Flash retenue pour le module.
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
-# Le pilote USB applicatif possede le canal : pas de console qui melange les trames.
+
+# Le canal USB est utilise par le protocole applicatif : ne pas melanger
+# la console ESP-IDF et les trames du generateur de fonctions.
 CONFIG_ESP_CONSOLE_NONE=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 CONFIG_BOOTLOADER_LOG_LEVEL_NONE=y
 CONFIG_LOG_DEFAULT_LEVEL_NONE=y
+
+# Taille de pile de la tache applicative.
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192

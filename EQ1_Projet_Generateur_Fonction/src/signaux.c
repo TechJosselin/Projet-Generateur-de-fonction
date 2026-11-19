@@ -1,140 +1,374 @@
+/*==================================================================================================
+ * CFPT - Equipe 1 - Projet generateur de fonctions
+ * MODULE     : SIGNAUX.C
+ * DESCRIPTIF : Catalogue des formes d'ondes, limites et formats.
+ *==================================================================================================*/
 #include "signaux.h"
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 
+/*============================== VARIABLES ET CONFIGURATION =======================================*/
+#define SIGNAUX_MV_PAR_VOLT              INT64_C(1000)
+#define SIGNAUX_HZ_PAR_KHZ               1000U
+#define SIGNAUX_HZ_PAR_MHZ               1000000U
+#define SIGNAUX_PAS_AMPLITUDE_DEFAUT     100U
+#define SIGNAUX_PAS_FREQUENCE_DEFAUT     1U
 static signal_config_t catalogue[SIGNAL_MAX];
-static bool changes[SIGNAL_MAX];
-static size_t total;
-static bool catalogue_change;
-
+static bool profils_modifies[SIGNAL_MAX];
+static size_t nombre_signaux;
+static bool catalogue_modifie;
 /* Les dix valeurs du cahier des charges, en mVpp / mV / Hz. */
-static const signal_config_t usine[SIGNAL_INIT_COUNT]={
-    {SIGNAL_SINUS,    1000,     0,    10000},
-    {SIGNAL_SINUS,    5000,     0,  1000000},
-    {SIGNAL_SINUS,    2000,  3000,     1000},
-    {SIGNAL_SINUS,     200, 10000,      500},
-    {SIGNAL_TRIANGLE,20000,     0,     5000},
-    {SIGNAL_TRIANGLE, 4000,     0,      100},
-    {SIGNAL_TRIANGLE, 5000, -5000,   200000},
-    {SIGNAL_CARRE,   10000,     0,       50},
-    {SIGNAL_CARRE,    1000,     0,      300},
-    {SIGNAL_CARRE,    4000,  6000,     1000}
+static const signal_config_t profils_usine[SIGNAL_INIT_COUNT] = {
+    { SIGNAL_SINUS, 1000, 0, 10000 },
+    { SIGNAL_SINUS, 5000, 0, 1000000 },
+    { SIGNAL_SINUS, 2000, 3000, 1000 },
+    { SIGNAL_SINUS, 200, 10000, 500 },
+    { SIGNAL_TRIANGLE, 20000, 0, 5000 },
+    { SIGNAL_TRIANGLE, 4000, 0, 100 },
+    { SIGNAL_TRIANGLE, 5000, -5000, 200000 },
+    { SIGNAL_CARRE, 10000, 0, 50 },
+    { SIGNAL_CARRE, 1000, 0, 300 },
+    { SIGNAL_CARRE, 4000, 6000, 1000 }
 };
-
-void signaux_initialiser(void){
-    memset(catalogue,0,sizeof(catalogue));
-    memset(changes,0,sizeof(changes));
-    memcpy(catalogue,usine,sizeof(usine));
-    total=SIGNAL_INIT_COUNT;
-    catalogue_change=false;
+/*==================================== FONCTIONS ================================================*/
+/*================================ INTERFACE PUBLIQUE ============================================*/
+/*--------------------------------------------------------------------------------------------------
+ * Fonction   : signaux_initialiser()
+ * Descriptif : Charge les dix profils fournis dans le cahier des charges.
+ *--------------------------------------------------------------------------------------------------*/
+void signaux_initialiser(void)
+{
+    memset(catalogue, 0, sizeof(catalogue));
+    memset(profils_modifies, 0, sizeof(profils_modifies));
+    memcpy(catalogue, profils_usine, sizeof(profils_usine));
+    nombre_signaux = SIGNAL_INIT_COUNT;
+    catalogue_modifie = false;
 }
-void signaux_retablir_usine(void){
+
+void signaux_retablir_usine(void)
+{
     signaux_initialiser();
-    catalogue_change=true;
-}
-size_t signaux_nombre(void){return total;}
-const signal_config_t *signaux_lire(size_t i){return i<total?&catalogue[i]:NULL;}
-bool signaux_valide(signal_config_t s){
-    return s.forme>=SIGNAL_SINUS && s.forme<=SIGNAL_CARRE &&
-           s.amplitude_mvpp>=SIGNAL_AMPL_MIN_MVPP && s.amplitude_mvpp<=SIGNAL_AMPL_MAX_MVPP &&
-           s.offset_mv>=SIGNAL_OFFSET_MIN_MV && s.offset_mv<=SIGNAL_OFFSET_MAX_MV &&
-           s.frequence_hz>=SIGNAL_FREQ_MIN_HZ && s.frequence_hz<=SIGNAL_FREQ_MAX_HZ;
-}
-bool signaux_remplacer_ensemble(const signal_config_t *donnees,size_t n){
-    if(!donnees || n==0 || n>SIGNAL_MAX)return false;
-    for(size_t i=0;i<n;i++)if(!signaux_valide(donnees[i]))return false;
-    memmove(catalogue,donnees,n*sizeof(*donnees));
-    if(n<SIGNAL_MAX)memset(catalogue+n,0,(SIGNAL_MAX-n)*sizeof(*donnees));
-    memset(changes,0,sizeof(changes));
-    total=n;
-    catalogue_change=false;
-    return true;
-}
-bool signaux_modifier(size_t i,signal_config_t s){
-    if(i>=total || !signaux_valide(s))return false;
-    if(catalogue[i].forme!=s.forme || catalogue[i].amplitude_mvpp!=s.amplitude_mvpp ||
-       catalogue[i].offset_mv!=s.offset_mv || catalogue[i].frequence_hz!=s.frequence_hz){
-        catalogue[i]=s;
-        changes[i]=true;
-    }
-    return true;
-}
-int signaux_dupliquer(size_t i){
-    if(i>=total || total>=SIGNAL_MAX)return -1;
-    catalogue[total]=catalogue[i];
-    changes[total]=true;
-    catalogue_change=true;
-    return (int)total++;
-}
-bool signaux_supprimer(size_t i){
-    if(i>=total || total<=1)return false;
-    for(size_t j=i;j+1<total;j++){
-        catalogue[j]=catalogue[j+1];
-        changes[j]=changes[j+1];
-    }
-    total--;
-    memset(&catalogue[total],0,sizeof(catalogue[total]));
-    changes[total]=false;
-    catalogue_change=true;
-    return true;
-}
-bool signaux_modifie(size_t i){return i<total && changes[i];}
-size_t signaux_nombre_modifies(void){
-    size_t n=0;for(size_t i=0;i<total;i++)if(changes[i])n++;return n;
-}
-bool signaux_modifications_en_ram(void){return catalogue_change || signaux_nombre_modifies()!=0;}
-void signaux_variation(signal_config_t *s,signal_champ_t champ,int direction,uint32_t pas){
-    if(!s || !direction)return;
-    int sens=direction>0?1:-1;
-    if(champ==CHAMP_FORME){
-        int f=(int)s->forme+sens;
-        s->forme=(signal_forme_t)(f<0?2:(f>2?0:f));
-    }else if(champ==CHAMP_AMPLITUDE || champ==CHAMP_OFFSET){
-        int64_t v=champ==CHAMP_AMPLITUDE?s->amplitude_mvpp:s->offset_mv;
-        int64_t mini=champ==CHAMP_AMPLITUDE?SIGNAL_AMPL_MIN_MVPP:SIGNAL_OFFSET_MIN_MV;
-        int64_t maxi=champ==CHAMP_AMPLITUDE?SIGNAL_AMPL_MAX_MVPP:SIGNAL_OFFSET_MAX_MV;
-        v+=(int64_t)sens*(int64_t)(pas?pas:100);
-        if(v<mini)v=mini;
-        if(v>maxi)v=maxi;
-        if(champ==CHAMP_AMPLITUDE)s->amplitude_mvpp=(int32_t)v;
-        else s->offset_mv=(int32_t)v;
-    }else if(champ==CHAMP_FREQUENCE){
-        int64_t v=(int64_t)s->frequence_hz+(int64_t)sens*(int64_t)(pas?pas:1);
-        if(v<SIGNAL_FREQ_MIN_HZ)v=SIGNAL_FREQ_MIN_HZ;
-        if(v>SIGNAL_FREQ_MAX_HZ)v=SIGNAL_FREQ_MAX_HZ;
-        s->frequence_hz=(uint32_t)v;
-    }
-}
-const char *signaux_type_court(signal_forme_t s){
-    switch(s){case SIGNAL_SINUS:return "SIN";case SIGNAL_TRIANGLE:return "TRI";
-              case SIGNAL_CARRE:return "CAR";default:return "???";}
-}
-const char *signaux_type_long(signal_forme_t s){
-    switch(s){case SIGNAL_SINUS:return "SINUS";case SIGNAL_TRIANGLE:return "TRIANGLE";
-              case SIGNAL_CARRE:return "CARRE";default:return "INVALIDE";}
-}
-void signaux_formater_tension(char *dst,size_t n,int32_t mv,bool signe){
-    if(!dst || !n)return;
-    int64_t v=mv;char sign=v<0?'-':'+';if(v<0)v=-v;
-    if(signe)snprintf(dst,n,"%c%"PRId64".%03"PRId64"V",sign,v/1000,v%1000);
-    else snprintf(dst,n,"%"PRId64".%03"PRId64"V",v/1000,v%1000);
-}
-void signaux_formater_frequence(char *dst,size_t n,uint32_t hz){
-    if(!dst || !n)return;
-    if(hz>=1000000 && hz%1000000==0)snprintf(dst,n,"%"PRIu32"MHz",hz/1000000);
-    else if(hz>=1000 && hz%1000==0)snprintf(dst,n,"%"PRIu32"kHz",hz/1000);
-    else snprintf(dst,n,"%"PRIu32"Hz",hz);
+    catalogue_modifie = true;
 }
 
-bool signaux_ajouter(signal_config_t s){
-    if(total>=SIGNAL_MAX || !signaux_valide(s))return false;
-    catalogue[total]=s;changes[total++]=true;catalogue_change=true;return true;
+size_t signaux_nombre(void)
+{
+    return nombre_signaux;
 }
-void signaux_marquer_sauves(void){
-    memset(changes,0,sizeof(changes));catalogue_change=false;
+
+const signal_config_t *signaux_lire(size_t index_signal)
+{
+    if (index_signal < nombre_signaux)
+    {
+        return&catalogue[index_signal];
+    }
+    return NULL;
 }
-bool signaux_egaux(signal_config_t a,signal_config_t b){
-    return a.forme==b.forme && a.amplitude_mvpp==b.amplitude_mvpp &&
-           a.offset_mv==b.offset_mv && a.frequence_hz==b.frequence_hz;
+
+/*--------------------------------------------------------------------------------------------------
+ * Fonction   : signaux_valide()
+ * Descriptif : Controle les limites de chaque parametre d'un signal.
+ *--------------------------------------------------------------------------------------------------*/
+bool signaux_valide(signal_config_t s)
+{
+    return s.forme >= SIGNAL_SINUS && s.forme <= SIGNAL_CARRE && s.amplitude_mvpp >= SIGNAL_AMPL_MIN_MVPP && s.amplitude_mvpp <= SIGNAL_AMPL_MAX_MVPP
+        && s.offset_mv >= SIGNAL_OFFSET_MIN_MV && s.offset_mv <= SIGNAL_OFFSET_MAX_MV && s.frequence_hz >= SIGNAL_FREQ_MIN_HZ
+        && s.frequence_hz <= SIGNAL_FREQ_MAX_HZ;
+}
+
+bool signaux_remplacer_ensemble(const signal_config_t *donnees, size_t n)
+{
+    if (!donnees || n == 0 || n > SIGNAL_MAX)
+    {
+        return false;
+    }
+    for (size_t index_signal = 0; index_signal < n; index_signal++)
+    {
+        if (!signaux_valide(donnees[index_signal]))
+        {
+            return false;
+        }
+    }
+    memmove(catalogue, donnees, n * sizeof(*donnees));
+    if (n < SIGNAL_MAX)
+    {
+        memset(catalogue + n, 0, (SIGNAL_MAX - n) * sizeof(*donnees));
+    }
+    memset(profils_modifies, 0, sizeof(profils_modifies));
+    nombre_signaux = n;
+    catalogue_modifie = false;
+    return true;
+}
+
+bool signaux_modifier(size_t index_signal, signal_config_t s)
+{
+    if (index_signal >= nombre_signaux || !signaux_valide(s))
+    {
+        return false;
+    }
+    if (catalogue[index_signal].forme != s.forme || catalogue[index_signal].amplitude_mvpp != s.amplitude_mvpp || catalogue[index_signal].offset_mv != s.offset_mv
+        || catalogue[index_signal].frequence_hz != s.frequence_hz)
+    {
+        catalogue[index_signal] = s;
+        profils_modifies[index_signal] = true;
+    }
+    return true;
+}
+
+int signaux_dupliquer(size_t index_signal)
+{
+    if (index_signal >= nombre_signaux || nombre_signaux >= SIGNAL_MAX)
+    {
+        return- 1;
+    }
+    catalogue[nombre_signaux] = catalogue[index_signal];
+    profils_modifies[nombre_signaux] = true;
+    catalogue_modifie = true;
+    return(int) nombre_signaux++;
+}
+
+bool signaux_supprimer(size_t index_signal)
+{
+    if (index_signal >= nombre_signaux || nombre_signaux <= 1)
+    {
+        return false;
+    }
+    for (size_t j = index_signal; j + 1 < nombre_signaux; j++)
+    {
+        catalogue[j] = catalogue[j + 1];
+        profils_modifies[j] = profils_modifies[j + 1];
+    }
+    nombre_signaux--;
+    memset(&catalogue[nombre_signaux], 0, sizeof(catalogue[nombre_signaux]));
+    profils_modifies[nombre_signaux] = false;
+    catalogue_modifie = true;
+    return true;
+}
+
+bool signaux_modifie(size_t index_signal)
+{
+    return index_signal < nombre_signaux && profils_modifies[index_signal];
+}
+
+size_t signaux_nombre_modifies(void)
+{
+    size_t nombre_modifies = 0;
+    for (size_t index_signal = 0; index_signal < nombre_signaux; index_signal++)
+    {
+        if (profils_modifies[index_signal])
+        {
+            nombre_modifies++;
+        }
+    }
+    return nombre_modifies;
+}
+
+bool signaux_modifications_en_ram(void)
+{
+    return catalogue_modifie || signaux_nombre_modifies() != 0;
+}
+
+/*--------------------------------------------------------------------------------------------------
+ * Fonction   : signaux_variation()
+ * Descriptif : Modifie une valeur tout en respectant ses limites.
+ *--------------------------------------------------------------------------------------------------*/
+void signaux_variation(signal_config_t *signal, signal_champ_t champ, int direction, uint32_t pas)
+{
+    if (!signal || !direction)
+    {
+        return;
+    }
+    int sens;
+    if (direction > 0)
+    {
+        sens = 1;
+    }
+    else
+    {
+        sens = -1;
+    }
+    if (champ == CHAMP_FORME)
+    {
+        int forme_demandee =(int) signal->forme + sens;
+        int forme = forme_demandee;
+        if (forme_demandee < 0)
+        {
+            forme = 2;
+        }
+        else if (forme_demandee > 2)
+        {
+            forme = 0;
+        }
+        signal->forme =(signal_forme_t) forme;
+    }
+    else if (champ == CHAMP_AMPLITUDE || champ == CHAMP_OFFSET)
+    {
+        int64_t valeur;
+        if (champ == CHAMP_AMPLITUDE)
+        {
+            valeur = signal->amplitude_mvpp;
+        }
+        else
+        {
+            valeur = signal->offset_mv;
+        }
+        int64_t mini;
+        if (champ == CHAMP_AMPLITUDE)
+        {
+            mini = SIGNAL_AMPL_MIN_MVPP;
+        }
+        else
+        {
+            mini = SIGNAL_OFFSET_MIN_MV;
+        }
+        int64_t maxi;
+        if (champ == CHAMP_AMPLITUDE)
+        {
+            maxi = SIGNAL_AMPL_MAX_MVPP;
+        }
+        else
+        {
+            maxi = SIGNAL_OFFSET_MAX_MV;
+        }
+        uint32_t pas_effectif = SIGNAUX_PAS_AMPLITUDE_DEFAUT;
+        if (pas)
+        {
+            pas_effectif = pas;
+        }
+        valeur +=(int64_t) sens *(int64_t) pas_effectif;
+        if (valeur < mini)
+        {
+            valeur = mini;
+        }
+        if (valeur > maxi)
+        {
+            valeur = maxi;
+        }
+        if (champ == CHAMP_AMPLITUDE)
+        {
+            signal->amplitude_mvpp =(int32_t) valeur;
+        }
+        else
+        {
+            signal->offset_mv =(int32_t) valeur;
+        }
+    }
+    else if (champ == CHAMP_FREQUENCE)
+    {
+        uint32_t pas_effectif = SIGNAUX_PAS_FREQUENCE_DEFAUT;
+        if (pas)
+        {
+            pas_effectif = pas;
+        }
+        int64_t valeur =(int64_t) signal->frequence_hz +(int64_t) sens *(int64_t) pas_effectif;
+        if (valeur < SIGNAL_FREQ_MIN_HZ)
+        {
+            valeur = SIGNAL_FREQ_MIN_HZ;
+        }
+        if (valeur > SIGNAL_FREQ_MAX_HZ)
+        {
+            valeur = SIGNAL_FREQ_MAX_HZ;
+        }
+        signal->frequence_hz =(uint32_t) valeur;
+    }
+}
+
+const char *signaux_type_court(signal_forme_t s)
+{
+    switch (s)
+    {
+    case SIGNAL_SINUS:
+        return "SIN";
+    case SIGNAL_TRIANGLE:
+        return "TRI";
+    case SIGNAL_CARRE:
+        return "CAR";
+    default:
+        return "???";
+    }
+}
+
+const char *signaux_type_long(signal_forme_t s)
+{
+    switch (s)
+    {
+    case SIGNAL_SINUS:
+        return "SINUS";
+    case SIGNAL_TRIANGLE:
+        return "TRIANGLE";
+    case SIGNAL_CARRE:
+        return "CARRE";
+    default:
+        return "INVALIDE";
+    }
+}
+
+void signaux_formater_tension(char *destination, size_t capacite_destination, int32_t millivolts, bool avec_signe)
+{
+    if (!destination || !capacite_destination)
+    {
+        return;
+    }
+    int64_t valeur_absolue_mv = millivolts;
+    char symbole_signe = '+';
+    if (valeur_absolue_mv < 0)
+    {
+        symbole_signe = '-';
+    }
+    if (valeur_absolue_mv < 0)
+    {
+        valeur_absolue_mv = -valeur_absolue_mv;
+    }
+    if (avec_signe)
+    {
+        snprintf(destination, capacite_destination, "%c%" PRId64 ".%03" PRId64 "V", symbole_signe, valeur_absolue_mv / SIGNAUX_MV_PAR_VOLT, valeur_absolue_mv % SIGNAUX_MV_PAR_VOLT);
+    }
+    else
+    {
+        snprintf(destination, capacite_destination, "%" PRId64 ".%03" PRId64 "V", valeur_absolue_mv / SIGNAUX_MV_PAR_VOLT, valeur_absolue_mv % SIGNAUX_MV_PAR_VOLT);
+    }
+}
+
+void signaux_formater_frequence(char *destination, size_t capacite_destination, uint32_t frequence_hz)
+{
+    if (!destination || !capacite_destination)
+    {
+        return;
+    }
+    if (frequence_hz >= SIGNAUX_HZ_PAR_MHZ && frequence_hz % SIGNAUX_HZ_PAR_MHZ == 0)
+    {
+        snprintf(destination, capacite_destination, "%" PRIu32 "MHz", frequence_hz / SIGNAUX_HZ_PAR_MHZ);
+    }
+    else if (frequence_hz >= SIGNAUX_HZ_PAR_KHZ && frequence_hz % SIGNAUX_HZ_PAR_KHZ == 0)
+    {
+        snprintf(destination, capacite_destination, "%" PRIu32 "kHz", frequence_hz / SIGNAUX_HZ_PAR_KHZ);
+    }
+    else
+    {
+        snprintf(destination, capacite_destination, "%" PRIu32 "Hz", frequence_hz);
+    }
+}
+
+bool signaux_ajouter(signal_config_t s)
+{
+    if (nombre_signaux >= SIGNAL_MAX || !signaux_valide(s))
+    {
+        return false;
+    }
+    catalogue[nombre_signaux] = s;
+    profils_modifies[nombre_signaux++] = true;
+    catalogue_modifie = true;
+    return true;
+}
+
+void signaux_marquer_sauves(void)
+{
+    memset(profils_modifies, 0, sizeof(profils_modifies));
+    catalogue_modifie = false;
+}
+
+bool signaux_egaux(signal_config_t a, signal_config_t b)
+{
+    return a.forme == b.forme && a.amplitude_mvpp == b.amplitude_mvpp && a.offset_mv == b.offset_mv && a.frequence_hz == b.frequence_hz;
 }

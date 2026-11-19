@@ -1,22 +1,113 @@
+/*==================================================================================================
+ * CFPT - Equipe 1 - Projet generateur de fonctions
+ * MODULE     : ENTREE.C
+ * DESCRIPTIF : Decodage de quadrature et anti-rebond du bouton.
+ *==================================================================================================*/
 #include "entree.h"
-static const int8_t transitions[16]={0,1,-1,0,-1,0,0,1,1,0,0,-1,0,-1,1,0};
-void quadrature_initialiser(quadrature_t *q,uint8_t ab){q->precedent=ab&3;q->detente=ab&3;q->somme=0;}
-int quadrature_traiter(quadrature_t *q,uint8_t ab) {
-    ab&=3;if(ab==q->precedent)return 0;
-    int p=transitions[(q->precedent<<2)|ab];q->somme=p?q->somme+p:0;q->precedent=ab;
-    if(ab!=q->detente)return 0;
-    int r=q->somme>=4?1:(q->somme<=-4?-1:0);q->somme=0;return r;
+
+/*============================== VARIABLES ET CONFIGURATION =======================================*/
+#define QUADRATURE_MASQUE_AB            0x03U
+#define QUADRATURE_DECALAGE_ETAT        2U
+#define QUADRATURE_TRANSITIONS_PAR_PAS   4
+#define BOUTON_REBOND_MS                30U
+#define BOUTON_APPUI_LONG_MS            800U
+static const int8_t transitions[16] = {
+    0,
+    1,
+    - 1,
+    0,
+    - 1,
+    0,
+    0,
+    1,
+    1,
+    0,
+    0,
+    - 1,
+    0,
+    - 1,
+    1,
+    0
+};
+/*==================================== FONCTIONS ================================================*/
+/*================================ INTERFACE PUBLIQUE ============================================*/
+void quadrature_initialiser(quadrature_t *etat_quadrature, uint8_t etat_ab)
+{
+    etat_quadrature->precedent = etat_ab & QUADRATURE_MASQUE_AB;
+    etat_quadrature->detente = etat_ab & QUADRATURE_MASQUE_AB;
+    etat_quadrature->somme = 0;
 }
-void bouton_initialiser(bouton_t *b,bool appuye,uint32_t now) {
-    *b=(bouton_t){.brut=appuye,.stable=appuye,.rebond=now,.appui=now};
-}
-evenement_ui_t bouton_traiter(bouton_t *b,bool appuye,uint32_t now) {
-    if(appuye!=b->brut){b->brut=appuye;b->rebond=now;}
-    if(b->stable!=appuye && (uint32_t)(now-b->rebond)>=30) {
-        b->stable=appuye;
-        if(appuye){b->appui=now;b->long_emis=false;}
-        else if(!b->long_emis)return UI_CLIC;
+
+/*--------------------------------------------------------------------------------------------------
+ * Fonction   : quadrature_traiter()
+ * Descriptif : Determine le sens de rotation avec la table des transitions.
+ *--------------------------------------------------------------------------------------------------*/
+int quadrature_traiter(quadrature_t *etat_quadrature, uint8_t etat_ab)
+{
+    etat_ab &= QUADRATURE_MASQUE_AB;
+    if (etat_ab == etat_quadrature->precedent)
+    {
+        return 0;
     }
-    if(b->stable && !b->long_emis && (uint32_t)(now-b->appui)>=800){b->long_emis=true;return UI_APPUI_LONG;}
+    int transition = transitions[(etat_quadrature->precedent << QUADRATURE_DECALAGE_ETAT) | etat_ab];
+    if (transition)
+    {
+        etat_quadrature->somme += transition;
+    }
+    else
+    {
+        etat_quadrature->somme = 0;
+    }
+    etat_quadrature->precedent = etat_ab;
+    if (etat_ab != etat_quadrature->detente)
+    {
+        return 0;
+    }
+    int sens_rotation = 0;
+    if (etat_quadrature->somme >= QUADRATURE_TRANSITIONS_PAR_PAS)
+    {
+        sens_rotation = 1;
+    }
+    else if (etat_quadrature->somme <= -QUADRATURE_TRANSITIONS_PAR_PAS)
+    {
+        sens_rotation = -1;
+    }
+    etat_quadrature->somme = 0;
+    return sens_rotation;
+}
+
+void bouton_initialiser(bouton_t *etat_bouton, bool appuye, uint32_t maintenant_ms)
+{
+    *etat_bouton =(bouton_t)
+    {
+        .brut = appuye,.stable = appuye,.rebond = maintenant_ms,.appui = maintenant_ms
+    };
+}
+
+evenement_ui_t bouton_traiter(bouton_t *etat_bouton, bool appuye, uint32_t maintenant_ms)
+{
+    if (appuye != etat_bouton->brut)
+    {
+        etat_bouton->brut = appuye;
+        etat_bouton->rebond = maintenant_ms;
+    }
+    if (etat_bouton->stable != appuye &&(uint32_t)(maintenant_ms - etat_bouton->rebond) >= BOUTON_REBOND_MS)
+    {
+        etat_bouton->stable = appuye;
+        if (appuye)
+        {
+            etat_bouton->appui = maintenant_ms;
+            etat_bouton->long_emis = false;
+        }
+        else if (!etat_bouton->long_emis)
+        {
+            return UI_CLIC;
+        }
+    }
+    if (etat_bouton->stable && !etat_bouton->long_emis &&(uint32_t)(maintenant_ms - etat_bouton->appui) >= BOUTON_APPUI_LONG_MS)
+    {
+        etat_bouton->long_emis = true;
+        return UI_APPUI_LONG;
+    }
     return UI_AUCUN;
 }

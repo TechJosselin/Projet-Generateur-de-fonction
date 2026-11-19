@@ -1,7 +1,14 @@
+/*==================================================================================================
+ * CFPT - Equipe 1 - Projet generateur de fonctions
+ * MODULE     : FREERTOS/FREERTOS.H
+ * DESCRIPTIF : Types et macros FreeRTOS simplifies pour les tests natifs.
+ *==================================================================================================*/
 #ifndef FREERTOS_H
 #define FREERTOS_H
 #include <stddef.h>
 #include <stdbool.h>
+
+/*================================= DONNEES DE SIMULATION =========================================*/
 typedef unsigned TickType_t;
 typedef int BaseType_t;
 typedef int portMUX_TYPE;
