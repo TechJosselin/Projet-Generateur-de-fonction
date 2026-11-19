@@ -13,9 +13,9 @@
 
 /*============================== VARIABLES ET CONFIGURATION =======================================*/
 /* Dimensions physiques, police 5x7 et transfert de pages SH1106. */
-#define OLED_PIXELS_PAR_OCTET           8U
+#define OLED_PIXELS_PAR_OCTET           8
 #define OLED_NOMBRE_PAGES              (OLED_HAUTEUR_PX / OLED_PIXELS_PAR_OCTET)
-#define OLED_POLICE_COLONNES           5U
+#define OLED_POLICE_COLONNES           5
 #define OLED_POLICE_PAS_X_PX           6
 #define OLED_POLICE_LIGNE_COLONNES     21
 #define OLED_POLICE_HAUTEUR_PX         7

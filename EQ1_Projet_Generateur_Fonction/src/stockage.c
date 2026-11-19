@@ -51,9 +51,9 @@ bool stockage_occupe(const stockage_t *etat_stockage)
     return etat_stockage && etat_stockage->etape != REPOS;
 }
 
-static bool plus_recent(uint32_t generation_nouvelle, uint32_t image_binaire)
+static bool plus_recent(uint32_t generation_nouvelle, uint32_t generation_actuelle)
 {
-    uint32_t ecart_generations = generation_nouvelle - image_binaire;
+    uint32_t ecart_generations = generation_nouvelle - generation_actuelle;
     return ecart_generations != 0 && ecart_generations < STOCKAGE_DEMI_PLAGE_GENERATIONS;
 }
 
