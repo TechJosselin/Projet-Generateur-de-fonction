@@ -157,18 +157,18 @@ gf_result_t digitales_commander(unsigned canal, uint32_t frequence_hz, uint16_t 
         .channel =(ledc_channel_t) canal,
         .timer_sel =(ledc_timer_t) canal,
         .intr_type = LEDC_INTR_DISABLE,
-        .rapport_pm = 0,
+        .duty = 0,
         .hpoint = 0
     };
     /* Calcule le rapport cyclique sans modifier le traitement LEDC de 100 %. */
     if (rapport_pm != DIGITAL_RAPPORT_MAX_PM)
     {
-        configuration_canal.rapport_pm =(uint32_t)((((uint64_t) 1 << resolution_bits) * rapport_pm + (DIGITAL_RAPPORT_MAX_PM / 2U)) / DIGITAL_RAPPORT_MAX_PM);
+        configuration_canal.duty =(uint32_t)((((uint64_t) 1 << resolution_bits) * rapport_pm + (DIGITAL_RAPPORT_MAX_PM / 2U)) / DIGITAL_RAPPORT_MAX_PM);
     }
     /* Arrondir une consigne presque pleine sans depasser le compteur. */
-    if (configuration_canal.rapport_pm >=(1U << resolution_bits))
+    if (configuration_canal.duty >=(1U << resolution_bits))
     {
-        configuration_canal.rapport_pm =(1U << resolution_bits) - 1;
+        configuration_canal.duty =(1U << resolution_bits) - 1;
     }
     erreur_pilote = ledc_channel_config(&configuration_canal);
     if (erreur_pilote != ESP_OK)
