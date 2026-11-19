@@ -49,6 +49,19 @@ Les fichiers `tools/refactor_readability.js` et `tools/convert_ternaries.js` con
 la trace des transformations de migration initiales. Ce ne sont pas des services du
 firmware et ils n'ont pas vocation a etre executes au demarrage.
 
+## Tests et outils du PC
+
+Les fichiers de test et de maintenance ont egalement ete repris :
+
+- `test/native/test_*.c` : scenarios unitaires C, commentaires de test, structures explicites et suppression des expressions ternaires.
+- `test/native/fakes/**/*.h` : definitions et prototypes des pilotes simules pour les tests natifs. Ces broches ne decrivent pas le PCB.
+- `tools/generateur.py` : client USB, commandes et gestion des calibrations.
+- `tools/test_generateur.py` et `tools/run_native_tests.py` : tests PC et execution automatisee des suites C.
+- `CMakeLists.txt`, `src/CMakeLists.txt` et `sdkconfig.defaults` : configuration commentee et regroupee par responsabilite.
+- `.github/workflows/firmware.yml` : ajout des tests Python au controle automatise existant.
+
+Les documents Markdown, fichiers de donnees et verrous de versions ont leur propre format ; ils n'ont pas a adopter l'indentation du C.
+
 ## Verification avant fusion
 
 - Tests unitaires natifs et controles ASan / UBSan sur GitHub Actions.
