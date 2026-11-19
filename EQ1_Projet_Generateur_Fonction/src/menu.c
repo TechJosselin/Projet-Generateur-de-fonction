@@ -14,6 +14,14 @@
 #include <stdarg.h>
 
 /*============================== VARIABLES ET CONFIGURATION =======================================*/
+/* Navigation sur trois lignes et defilement horizontal. */
+#define MENU_LIGNES_VISIBLES             3
+#define MENU_HAUTEUR_LIGNE_PX            17
+#define MENU_ORIGINE_LIGNES_Y_PX         14
+#define MENU_ATTENTE_DEFILEMENT_MS       900U
+#define MENU_PAS_DEFILEMENT_MS           350U
+#define MENU_PAUSE_DEFILEMENT_PAS        4U
+#define MENU_RAFRAICHISSEMENT_MS         250U
 /* Types de pages de l'interface locale. */
 typedef enum
 {
@@ -35,10 +43,10 @@ static bool defilement_necessaire;      // La ligne selectionnee depasse la larg
 static bool erreur_arret;              // Derniere erreur liee a une demande d'arret
 
 /* Horodatages en millisecondes. */
-static uint32_t now;                    // Horloge courante
-static uint32_t dernier_dessin;         // Date du dernier rafraichissement
-static uint32_t dernier_evenement;      // Date de la derniere action utilisateur
-static uint32_t derniere_animation;     // Date de l'animation precedente
+static uint32_t horloge_menu_ms;                    // Horloge courante
+static uint32_t dernier_dessin_ms;         // Date du dernier rafraichissement
+static uint32_t dernier_evenement_ms;      // Date de la derniere action utilisateur
+static uint32_t derniere_animation_ms;     // Date de l'animation precedente
 
 static gf_result_t dernier_resultat;    // Code du dernier resultat a afficher
 /*==================================== FONCTIONS ================================================*/
@@ -126,9 +134,9 @@ static void liste(const char *titre)
         return;
     }
     int max_premiere = 0;
-    if (total > 3)
+    if (total > MENU_LIGNES_VISIBLES)
     {
-        max_premiere = total - 3;
+        max_premiere = total - MENU_LIGNES_VISIBLES;
     }
     if (!fenetre_valide)
     {
@@ -139,51 +147,51 @@ static void liste(const char *titre)
     {
         premiere_ligne = index_signal;
     }
-    if (index_signal >= premiere_ligne + 3)
+    if (index_signal >= premiere_ligne + MENU_LIGNES_VISIBLES)
     {
         premiere_ligne = index_signal - 2;
     }
     premiere_ligne = borne(premiere_ligne, 0, max_premiere);
-    for (int i = 0; i < 3 && premiere_ligne + i < total; i++)
+    for (int i = 0; i < MENU_LIGNES_VISIBLES && premiere_ligne + i < total; i++)
     {
         char complet[64] = { 0 }, visible[OLED_GRAND_NB_CARACTERES + 1];
         ligne_signal(premiere_ligne + i, complet, sizeof(complet));
         bool choisi = premiere_ligne + i == index_signal;
-        size_t longueur = strlen(complet), decalage = 0;
-        if (choisi && longueur > OLED_GRAND_NB_CARACTERES)
+        size_t longueur_texte = strlen(complet), decalage_texte = 0;
+        if (choisi && longueur_texte > OLED_GRAND_NB_CARACTERES)
         {
             defilement_necessaire = true;
-            uint32_t ecoule = now - dernier_evenement;
-            if (ecoule > 900U)
+            uint32_t temps_depuis_evenement_ms = horloge_menu_ms - dernier_evenement_ms;
+            if (temps_depuis_evenement_ms > MENU_ATTENTE_DEFILEMENT_MS)
             {
-                size_t max_decalage = longueur - OLED_GRAND_NB_CARACTERES;
-                size_t phase =((ecoule - 900U) / 350U) %(max_decalage + 4U);
-                if (phase > max_decalage)
+                size_t decalage_maximum = longueur_texte - OLED_GRAND_NB_CARACTERES;
+                size_t phase_defilement =((temps_depuis_evenement_ms - MENU_ATTENTE_DEFILEMENT_MS) / MENU_PAS_DEFILEMENT_MS) %(decalage_maximum + MENU_PAUSE_DEFILEMENT_PAS);
+                if (phase_defilement > decalage_maximum)
                 {
-                    decalage = max_decalage;
+                    decalage_texte = decalage_maximum;
                 }
                 else
                 {
-                    decalage = phase;
+                    decalage_texte = phase_defilement;
                 }
             }
         }
-        size_t n = longueur - decalage;
+        size_t n = longueur_texte - decalage_texte;
         if (n > OLED_GRAND_NB_CARACTERES)
         {
             n = OLED_GRAND_NB_CARACTERES;
         }
-        memcpy(visible, complet + decalage, n);
+        memcpy(visible, complet + decalage_texte, n);
         visible[n] = 0;
-        if (!choisi && longueur > OLED_GRAND_NB_CARACTERES)
+        if (!choisi && longueur_texte > OLED_GRAND_NB_CARACTERES)
         {
             visible[OLED_GRAND_NB_CARACTERES - 1] = '>';
         }
-        int y = 14 + i * 17;
+        int y = MENU_ORIGINE_LIGNES_Y_PX + i * MENU_HAUTEUR_LIGNE_PX;
         oled_texte_grand(4, y, visible);
         if (choisi)
         {
-            oled_inverser_zone(0, y - 1, 128, 16);
+            oled_inverser_zone(0, y - 1, OLED_LARGEUR_PX, 16);
         }
     }
 }
@@ -234,13 +242,13 @@ void menu_initialiser(void)
     index_signal = 0;
     premiere_ligne = 0;
     sale = true;
-    now = 0;
-    dernier_dessin = 0;
+    horloge_menu_ms = 0;
+    dernier_dessin_ms = 0;
     fenetre_valide = false;
     action_en_attente = true;
     defilement_necessaire = false;
-    dernier_evenement = 0;
-    derniere_animation = 0;
+    dernier_evenement_ms = 0;
+    derniere_animation_ms = 0;
     erreur_arret = false;
     dernier_resultat = GF_OK;
 }
@@ -418,24 +426,24 @@ static void afficher(void)
  *--------------------------------------------------------------------------------------------------*/
 void menu_periodique(uint32_t t)
 {
-    now = t;
+    horloge_menu_ms = t;
     if (action_en_attente)
     {
-        dernier_evenement = now;
-        derniere_animation = now;
+        dernier_evenement_ms = horloge_menu_ms;
+        derniere_animation_ms = horloge_menu_ms;
         action_en_attente = false;
     }
     /* Le defilement commence apres 900 ms, puis avance toutes les 350 ms. */
-    if (defilement_necessaire &&(uint32_t)(now - dernier_evenement) > 900U &&(uint32_t)(now - derniere_animation) >= 350U)
+    if (defilement_necessaire &&(uint32_t)(horloge_menu_ms - dernier_evenement_ms) > MENU_ATTENTE_DEFILEMENT_MS &&(uint32_t)(horloge_menu_ms - derniere_animation_ms) >= MENU_PAS_DEFILEMENT_MS)
     {
-        derniere_animation = now;
+        derniere_animation_ms = horloge_menu_ms;
         sale = true;
     }
     /* L'affichage est rafraichi sur modification ou au plus tard apres 250 ms. */
-    if (sale ||(uint32_t)(now - dernier_dessin) >= 250)
+    if (sale ||(uint32_t)(horloge_menu_ms - dernier_dessin_ms) >= 250)
     {
         afficher();
-        dernier_dessin = now;
+        dernier_dessin_ms = horloge_menu_ms;
         sale = false;
     }
 }

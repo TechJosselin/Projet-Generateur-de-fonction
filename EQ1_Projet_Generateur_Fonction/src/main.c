@@ -12,8 +12,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_timer.h"
+#include "temps.h"
 
 /*============================== VARIABLES ET CONFIGURATION =======================================*/
+/* Un tick de boucle laisse progresser les autres taches FreeRTOS. */
+#define BOUCLE_PRINCIPALE_PAUSE_TICKS 1U
+
 /*==================================== FONCTIONS ================================================*/
 /*================================ INTERFACE PUBLIQUE ============================================*/
 /*--------------------------------------------------------------------------------------------------
@@ -30,13 +34,13 @@ void app_main(void)
     (void) usb_transport_initialiser();
     for (;;)
     {
-        uint32_t now =(uint32_t)(esp_timer_get_time() / 1000);
+        uint32_t maintenant_ms =(uint32_t)(esp_timer_get_time() / TEMPS_US_PAR_MS);
         /* Un seul proprietaire du modele : aucune tache USB/EEPROM concurrente. */
         menu_traiter(encodeur_lire_evenement());
-        usb_transport_periodique(now);
-        integration_periodique(now);
-        menu_periodique(now);
-        oled_periodique(now);
-        vTaskDelay(1);
+        usb_transport_periodique(maintenant_ms);
+        integration_periodique(maintenant_ms);
+        menu_periodique(maintenant_ms);
+        oled_periodique(maintenant_ms);
+        vTaskDelay(BOUCLE_PRINCIPALE_PAUSE_TICKS);
     }
 }

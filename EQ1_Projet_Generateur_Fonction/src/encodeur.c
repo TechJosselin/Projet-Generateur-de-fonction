@@ -10,17 +10,21 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "esp_timer.h"
+#include "temps.h"
 
 /*============================== VARIABLES ET CONFIGURATION =======================================*/
-static QueueHandle_t queue;
-static quadrature_t q;
-static bouton_t b;
-static int attente;
-static uint32_t pertes, vues;
+#define ENCODEUR_CAPACITE_FILE          128U
+#define ENCODEUR_TRANSITIONS_PAR_APPEL  128U
+#define ENCODEUR_ROTATIONS_MAX_ATTENTE  128
+static QueueHandle_t file_evenements;
+static quadrature_t etat_quadrature;
+static bouton_t etat_bouton;
+static int rotations_en_attente;
+static uint32_t transitions_perdues, pertes_observees;
 static bool initialise;
 static portMUX_TYPE verrou = portMUX_INITIALIZER_UNLOCKED;
 /*==================================== FONCTIONS ================================================*/
-static uint8_t ab(void)
+static uint8_t lire_etat_ab(void)
 {
     return(uint8_t)((gpio_get_level(SYSTEM_ENCODER_A_GPIO) << 1) | gpio_get_level(SYSTEM_ENCODER_B_GPIO));
 }
@@ -28,12 +32,12 @@ static uint8_t ab(void)
 static void interruption(void *unused)
 {
     (void) unused;
-    uint8_t x = ab();
+    uint8_t etat_ab = lire_etat_ab();
     BaseType_t reveil = pdFALSE;
-    if (xQueueSendFromISR(queue, &x, &reveil) != pdTRUE)
+    if (xQueueSendFromISR(file_evenements, &etat_ab, &reveil) != pdTRUE)
     {
         portENTER_CRITICAL_ISR(&verrou);
-        pertes++;
+        transitions_perdues++;
         portEXIT_CRITICAL_ISR(&verrou);
     }
     if (reveil)
@@ -46,7 +50,7 @@ static void interruption(void *unused)
 uint32_t encodeur_pertes(void)
 {
     portENTER_CRITICAL(&verrou);
-    uint32_t v = pertes;
+    uint32_t v = transitions_perdues;
     portEXIT_CRITICAL(&verrou);
     return v;
 }
@@ -61,8 +65,8 @@ bool encodeur_initialiser(void)
     {
         return true;
     }
-    queue = xQueueCreate(128, sizeof(uint8_t));
-    if (!queue)
+    file_evenements = xQueueCreate(ENCODEUR_CAPACITE_FILE, sizeof(uint8_t));
+    if (!file_evenements)
     {
         return false;
     }
@@ -85,8 +89,8 @@ bool encodeur_initialiser(void)
     {
         goto fail;
     }
-    quadrature_initialiser(&q, ab());
-    bouton_initialiser(&b, gpio_get_level(SYSTEM_ENCODER_BUTTON_GPIO) == 0, (uint32_t)(esp_timer_get_time() / 1000));
+    quadrature_initialiser(&etat_quadrature, lire_etat_ab());
+    bouton_initialiser(&etat_bouton, gpio_get_level(SYSTEM_ENCODER_BUTTON_GPIO) == 0, (uint32_t)(esp_timer_get_time() / TEMPS_US_PAR_MS));
     e = gpio_install_isr_service(0);
     if (e != ESP_OK && e != ESP_ERR_INVALID_STATE)
     {
@@ -105,8 +109,8 @@ bool encodeur_initialiser(void)
     }
     initialise = true;
     return true;
-    fail : vQueueDelete(queue);
-    queue = NULL;
+    fail : vQueueDelete(file_evenements);
+    file_evenements = NULL;
     return false;
 }
 
@@ -116,46 +120,46 @@ evenement_ui_t encodeur_lire_evenement(void)
     {
         return UI_AUCUN;
     }
-    uint32_t n = encodeur_pertes();
-    if (n != vues)
+    uint32_t nombre_pertes = encodeur_pertes();
+    if (nombre_pertes != pertes_observees)
     {
-        vues = n;
-        xQueueReset(queue);
-        quadrature_initialiser(&q, ab());
-        attente = 0;
+        pertes_observees = nombre_pertes;
+        xQueueReset(file_evenements);
+        quadrature_initialiser(&etat_quadrature, lire_etat_ab());
+        rotations_en_attente = 0;
     }
-    uint8_t x;
-    unsigned traite = 0;
-    while (traite++ < 128 && xQueueReceive(queue, &x, 0) == pdTRUE)
+    uint8_t etat_ab;
+    unsigned transitions_traitees = 0;
+    while (transitions_traitees++ < ENCODEUR_TRANSITIONS_PAR_APPEL && xQueueReceive(file_evenements, &etat_ab, 0) == pdTRUE)
     {
-        int d = quadrature_traiter(&q, x);
+        int delta_rotation = quadrature_traiter(&etat_quadrature, etat_ab);
         if (SYSTEM_ENCODER_REVERSE_DIRECTION)
         {
-            d = -d;
+            delta_rotation = -delta_rotation;
         }
-        attente += d;
-        if (attente > 128)
+        rotations_en_attente += delta_rotation;
+        if (rotations_en_attente > ENCODEUR_ROTATIONS_MAX_ATTENTE)
         {
-            attente = 128;
+            rotations_en_attente = ENCODEUR_ROTATIONS_MAX_ATTENTE;
         }
-        if (attente < - 128)
+        if (rotations_en_attente < -ENCODEUR_ROTATIONS_MAX_ATTENTE)
         {
-            attente = -128;
+            rotations_en_attente = -ENCODEUR_ROTATIONS_MAX_ATTENTE;
         }
     }
-    evenement_ui_t e = bouton_traiter(&b, gpio_get_level(SYSTEM_ENCODER_BUTTON_GPIO) == 0, (uint32_t)(esp_timer_get_time() / 1000));
+    evenement_ui_t e = bouton_traiter(&etat_bouton, gpio_get_level(SYSTEM_ENCODER_BUTTON_GPIO) == 0, (uint32_t)(esp_timer_get_time() / TEMPS_US_PAR_MS));
     if (e != UI_AUCUN)
     {
         return e;
     }
-    if (attente > 0)
+    if (rotations_en_attente > 0)
     {
-        attente--;
+        rotations_en_attente--;
         return UI_ROTATION_PLUS;
     }
-    if (attente < 0)
+    if (rotations_en_attente < 0)
     {
-        attente++;
+        rotations_en_attente++;
         return UI_ROTATION_MOINS;
     }
     return UI_AUCUN;

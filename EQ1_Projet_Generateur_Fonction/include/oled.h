@@ -17,6 +17,8 @@ void oled_texte(int ligne, int colonne, const char *texte);
 void oled_ligne(int ligne, const char *texte, bool surligner);
 /* Rendu repris de feature/menu-oled-3-lignes : pas de 9 px, hauteur 14 px.
 * Les listes limitent leur fenetre a 13 caracteres. Dessin sans transfert I2C. */
+#define OLED_LARGEUR_PX 128
+#define OLED_HAUTEUR_PX 64
 #define OLED_GRAND_PAS_X 9
 #define OLED_GRAND_HAUTEUR 14
 #define OLED_GRAND_NB_CARACTERES 13
