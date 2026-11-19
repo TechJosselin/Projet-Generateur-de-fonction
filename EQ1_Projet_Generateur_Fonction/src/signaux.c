@@ -9,7 +9,7 @@
 #include <string.h>
 
 /*============================== VARIABLES ET CONFIGURATION =======================================*/
-#define SIGNAUX_MV_PAR_VOLT              1000LL
+#define SIGNAUX_MV_PAR_VOLT              INT64_C(1000)
 #define SIGNAUX_HZ_PAR_KHZ               1000U
 #define SIGNAUX_HZ_PAR_MHZ               1000000U
 #define SIGNAUX_PAS_AMPLITUDE_DEFAUT     100U
