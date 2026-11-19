@@ -449,7 +449,7 @@ void menu_periodique(uint32_t maintenant_ms)
         sale = true;
     }
     /* L'affichage est rafraichi sur modification ou au plus tard apres 250 ms. */
-    if (sale ||(uint32_t)(horloge_menu_ms - dernier_dessin_ms) >= 250)
+    if (sale ||(uint32_t)(horloge_menu_ms - dernier_dessin_ms) >= MENU_RAFRAICHISSEMENT_MS)
     {
         afficher();
         dernier_dessin_ms = horloge_menu_ms;

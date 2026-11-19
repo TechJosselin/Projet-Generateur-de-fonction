@@ -9,7 +9,7 @@
 
 /*============================== VARIABLES ET CONFIGURATION =======================================*/
 #define INTEGRATION_SAUVEGARDE_ATTENTE_MS    300U
-static integration_backend_t hw;
+static integration_backend_t materiel;
 static stockage_t memoire;
 static calibration_t profil;
 static integration_statut_t etat;
@@ -30,11 +30,11 @@ const calibration_t *integration_calibration(void)
     return&profil;
 }
 
-const digital_statut_t *integration_digital_statut(unsigned c)
+const digital_statut_t *integration_digital_statut(unsigned canal)
 {
-    if (c < DIGITAL_NOMBRE_CANAUX)
+    if (canal < DIGITAL_NOMBRE_CANAUX)
     {
-        return&digitales[c];
+        return&digitales[canal];
     }
     return NULL;
 }
@@ -62,38 +62,38 @@ const char *integration_nom_etat(void)
 
 bool integration_i2c_disponible(void)
 {
-    return hw.i2c;
+    return materiel.i2c;
 }
 
 bool integration_ad9833_disponible(void)
 {
-    return hw.dds;
+    return materiel.dds;
 }
 
 bool integration_epot_disponible(void)
 {
-    return hw.epots;
+    return materiel.epots;
 }
 
 bool integration_memoire_disponible(void)
 {
-    return hw.eeprom;
+    return materiel.eeprom;
 }
 
-bool integration_sortie_digitale_disponible(unsigned c)
+bool integration_sortie_digitale_disponible(unsigned canal)
 {
-    return c < DIGITAL_NOMBRE_CANAUX && hw.digitales[c];
+    return canal < DIGITAL_NOMBRE_CANAUX && materiel.digitales[canal];
 }
 
-static gf_result_t resultat(gf_result_t r, const char *etape)
+static gf_result_t resultat(gf_result_t code_operation, const char *etape)
 {
     /* Le dernier defaut materiel reste visible jusqu'a un arret confirme. */
     if (etat.etat != SYS_DEFAUT)
     {
-        etat.erreur = r;
+        etat.erreur = code_operation;
         etat.etape = etape;
     }
-    return r;
+    return code_operation;
 }
 
 /*--------------------------------------------------------------------------------------------------
@@ -102,7 +102,7 @@ static gf_result_t resultat(gf_result_t r, const char *etape)
  *--------------------------------------------------------------------------------------------------*/
 static void etat_arrete(void)
 {
-    if (!hw.dds)
+    if (!materiel.dds)
     {
         etat.etat = SYS_NON_INITIALISE;
     }
@@ -133,7 +133,7 @@ static void changer(void)
     etat.modifie = true;
     sauvegarde_demandee = true;
     derniere_modification = horloge;
-    if (hw.eeprom)
+    if (materiel.eeprom)
     {
         etat.sauvegarde = GF_OK;
     }
@@ -145,20 +145,20 @@ static void changer(void)
 
 static gf_result_t arreter_analogique(void)
 {
-    gf_result_t r = GF_ABSENT;
-    if (hw.dds && hw.arreter)
+    gf_result_t code_operation = GF_ABSENT;
+    if (materiel.dds && materiel.arreter)
     {
-        r = hw.arreter(hw.ctx);
+        code_operation = materiel.arreter(materiel.ctx);
     }
-    etat.erreur_arret = r;
+    etat.erreur_arret = code_operation;
     etat.commande_courante = false;
     etat.nominal_courant = false;
-    if (r != GF_OK)
+    if (code_operation != GF_OK)
     {
-        etat.erreur = r;
+        etat.erreur = code_operation;
         etat.etape = "ARRET_DDS";
         etat.etat = SYS_DEFAUT;
-        return r;
+        return code_operation;
     }
     etat_arrete();
     return resultat(GF_OK, "ARRET_DDS");
@@ -180,27 +180,27 @@ static gf_result_t arreter_si_necessaire(void)
  *--------------------------------------------------------------------------------------------------*/
 gf_result_t integration_arreter(void)
 {
-    gf_result_t r = arreter_analogique();
-    for (unsigned c = 0; c < DIGITAL_NOMBRE_CANAUX; c++)
+    gf_result_t code_operation = arreter_analogique();
+    for (unsigned canal = 0; canal < DIGITAL_NOMBRE_CANAUX; canal++)
     {
-        if (hw.digitales[c])
+        if (materiel.digitales[canal])
         {
-            gf_result_t d = integration_commander_digital(c, 0, 0, false);
-            if (r == GF_OK && d != GF_OK)
+            gf_result_t resultat_digital = integration_commander_digital(canal, 0, 0, false);
+            if (code_operation == GF_OK && resultat_digital != GF_OK)
             {
-                r = d;
+                code_operation = resultat_digital;
             }
         }
     }
-    if (r != GF_OK)
+    if (code_operation != GF_OK)
     {
         if (etat.etat != SYS_DEFAUT)
         {
-            etat.erreur = r;
+            etat.erreur = code_operation;
             etat.etape = "ARRET";
         }
         etat.etat = SYS_DEFAUT;
-        return r;
+        return code_operation;
     }
     return resultat(GF_OK, "ARRET");
 }
@@ -211,7 +211,7 @@ gf_result_t integration_arreter(void)
  *--------------------------------------------------------------------------------------------------*/
 void integration_initialiser_avec(integration_backend_t backend, stockage_io_t io)
 {
-    hw = backend;
+    materiel = backend;
     memset(&etat, 0, sizeof(etat));
     memset(&profil, 0, sizeof(profil));
     memset(digitales, 0, sizeof(digitales));
@@ -223,7 +223,7 @@ void integration_initialiser_avec(integration_backend_t backend, stockage_io_t i
     signaux_initialiser();
     stockage_initialiser(&memoire, io);
     etat.chargement = GF_ABSENT;
-    if (hw.eeprom)
+    if (materiel.eeprom)
     {
         etat.chargement = stockage_charger(&memoire, &instantane);
     }
@@ -241,21 +241,21 @@ void integration_initialiser_avec(integration_backend_t backend, stockage_io_t i
         sauvegarde_demandee = etat.chargement == GF_VIDE;
     }
     etat.sauvegarde = GF_ABSENT;
-    if (hw.eeprom)
+    if (materiel.eeprom)
     {
         etat.sauvegarde = GF_OK;
     }
     etat.etape = "DEMARRAGE";
     etat_arrete();
-    if (hw.dds)
+    if (materiel.dds)
     {
         (void) arreter_analogique();
     }
-    for (unsigned c = 0; c < DIGITAL_NOMBRE_CANAUX; c++)
+    for (unsigned canal = 0; canal < DIGITAL_NOMBRE_CANAUX; canal++)
     {
-        if (hw.digitales[c])
+        if (materiel.digitales[canal])
         {
-            (void) integration_commander_digital(c, 0, 0, false);
+            (void) integration_commander_digital(canal, 0, 0, false);
         }
     }
 }
@@ -264,9 +264,9 @@ static void capturer(void)
 {
     instantane.nombre = signaux_nombre();
     instantane.calibration = profil;
-    for (size_t i = 0; i < instantane.nombre; i++)
+    for (size_t index_signal = 0; index_signal < instantane.nombre; index_signal++)
     {
-        instantane.signaux[i] = *signaux_lire(i);
+        instantane.signaux[index_signal] = *signaux_lire(index_signal);
     }
 }
 
@@ -305,7 +305,7 @@ void integration_periodique(uint32_t now)
         sauvegarde_demandee = false;
         capturer();
         etat.sauvegarde = GF_ABSENT;
-        if (hw.eeprom)
+        if (materiel.eeprom)
         {
             etat.sauvegarde = stockage_commencer(&memoire, &instantane);
         }
@@ -328,10 +328,10 @@ gf_result_t integration_choisir(size_t index)
     {
         return resultat(GF_INDEX, "SELECTION");
     }
-    gf_result_t r = arreter_si_necessaire();
-    if (r != GF_OK)
+    gf_result_t code_operation = arreter_si_necessaire();
+    if (code_operation != GF_OK)
     {
-        return r;
+        return code_operation;
     }
     etat.selection =(int) index;
     etat.commande_courante = false;
@@ -340,19 +340,19 @@ gf_result_t integration_choisir(size_t index)
     return resultat(GF_OK, "SELECTION_RAM");
 }
 
-static gf_result_t defaut(gf_result_t r, const char *etape)
+static gf_result_t defaut(gf_result_t code_operation, const char *etape)
 {
     etat.erreur_arret = GF_ABSENT;
-    if (hw.arreter)
+    if (materiel.arreter)
     {
-        etat.erreur_arret = hw.arreter(hw.ctx);
+        etat.erreur_arret = materiel.arreter(materiel.ctx);
     }
-    etat.erreur = r;
+    etat.erreur = code_operation;
     etat.etape = etape;
     etat.etat = SYS_DEFAUT;
     etat.commande_courante = false;
     etat.nominal_courant = false;
-    return r;
+    return code_operation;
 }
 
 /*--------------------------------------------------------------------------------------------------
@@ -365,36 +365,36 @@ gf_result_t integration_activer(void)
     {
         return resultat(GF_CONFLIT, "ARRET_REQUIS");
     }
-    const signal_config_t *s = NULL;
+    const signal_config_t *signal = NULL;
     if (etat.selection >= 0)
     {
-        s = signaux_lire((size_t) etat.selection);
+        signal = signaux_lire((size_t) etat.selection);
     }
-    if (!s)
+    if (!signal)
     {
         return resultat(GF_SELECTION, "SELECTION");
     }
     analogique_commande_t codes = { 0 };
-    gf_result_t r = analogique_convertir(&profil, s, &codes);
-    bool sans_profil = r == GF_NON_CALIBRE;
-    if (r != GF_OK && !sans_profil)
+    gf_result_t code_operation = analogique_convertir(&profil, signal, &codes);
+    bool sans_profil = code_operation == GF_NON_CALIBRE;
+    if (code_operation != GF_OK && !sans_profil)
     {
-        return resultat(r, "CALIBRATION");
+        return resultat(code_operation, "CALIBRATION");
     }
     /* Profil approuve prioritaire. En son absence, EPOT nominaux si disponibles,
     * sinon DDS seul explicitement indique. Aucune mesure n'est simulee. */
-    bool epot_ok = hw.epots && hw.gain && hw.offset;
+    bool epot_ok = materiel.epots && materiel.gain && materiel.offset;
     bool nominal = sans_profil && epot_ok;
     bool dds_seul = sans_profil && !epot_ok;
     if (nominal)
     {
-        r = analogique_convertir_nominal(s, &codes);
-        if (r != GF_OK)
+        code_operation = analogique_convertir_nominal(signal, &codes);
+        if (code_operation != GF_OK)
         {
-            return resultat(r, "MODELE_NOMINAL");
+            return resultat(code_operation, "MODELE_NOMINAL");
         }
     }
-    if (!hw.dds || !hw.arreter || !hw.dds_configurer || !hw.activer)
+    if (!materiel.dds || !materiel.arreter || !materiel.dds_configurer || !materiel.activer)
     {
         return resultat(GF_ABSENT, "MATERIEL_DDS");
     }
@@ -402,57 +402,57 @@ gf_result_t integration_activer(void)
     {
         return resultat(GF_ABSENT, "MATERIEL_EPOT");
     }
-    if (!sans_profil && profil.stabilisation_ms && !hw.attendre_ms)
+    if (!sans_profil && profil.stabilisation_ms && !materiel.attendre_ms)
     {
         return resultat(GF_NON_SUPPORTE, "STABILISATION");
     }
-    r = arreter_analogique();
-    if (r != GF_OK)
+    code_operation = arreter_analogique();
+    if (code_operation != GF_OK)
     {
-        return r;
+        return code_operation;
     }
-    r = hw.dds_configurer(hw.ctx, s);
-    if (r != GF_OK)
+    code_operation = materiel.dds_configurer(materiel.ctx, signal);
+    if (code_operation != GF_OK)
     {
-        return defaut(r, "DDS_CONFIG");
+        return defaut(code_operation, "DDS_CONFIG");
     }
     if (!dds_seul)
     {
         if (nominal || profil.gain_avant_offset)
         {
-            r = hw.gain(hw.ctx, codes.gain);
-            if (r != GF_OK)
+            code_operation = materiel.gain(materiel.ctx, codes.gain);
+            if (code_operation != GF_OK)
             {
-                return defaut(r, "GAIN");
+                return defaut(code_operation, "GAIN");
             }
-            r = hw.offset(hw.ctx, codes.offset);
-            if (r != GF_OK)
+            code_operation = materiel.offset(materiel.ctx, codes.offset);
+            if (code_operation != GF_OK)
             {
-                return defaut(r, "OFFSET");
+                return defaut(code_operation, "OFFSET");
             }
         }
         else
         {
-            r = hw.offset(hw.ctx, codes.offset);
-            if (r != GF_OK)
+            code_operation = materiel.offset(materiel.ctx, codes.offset);
+            if (code_operation != GF_OK)
             {
-                return defaut(r, "OFFSET");
+                return defaut(code_operation, "OFFSET");
             }
-            r = hw.gain(hw.ctx, codes.gain);
-            if (r != GF_OK)
+            code_operation = materiel.gain(materiel.ctx, codes.gain);
+            if (code_operation != GF_OK)
             {
-                return defaut(r, "GAIN");
+                return defaut(code_operation, "GAIN");
             }
         }
         if (!sans_profil && profil.stabilisation_ms)
         {
-            hw.attendre_ms(hw.ctx, profil.stabilisation_ms);
+            materiel.attendre_ms(materiel.ctx, profil.stabilisation_ms);
         }
     }
-    r = hw.activer(hw.ctx);
-    if (r != GF_OK)
+    code_operation = materiel.activer(materiel.ctx);
+    if (code_operation != GF_OK)
     {
-        return defaut(r, "ACTIVATION");
+        return defaut(code_operation, "ACTIVATION");
     }
     etat.etat = SYS_ACTIF_COMMANDE;
     etat.nominal_courant = nominal;
@@ -468,7 +468,7 @@ gf_result_t integration_activer(void)
         /* Derniere = commande calibree historique. */
         return resultat(GF_OK, "EPOT_NOMINAL_NON_MESURE");
     }
-    etat.derniere = *s;
+    etat.derniere = *signal;
     etat.derniere_valide = true;
     etat.commande_courante = true;
     return resultat(GF_OK, "COMMANDE_COMPLETE");
@@ -478,42 +478,42 @@ gf_result_t integration_activer(void)
  * Fonction   : integration_modifier()
  * Descriptif : Valide et applique une edition de signal en RAM.
  *--------------------------------------------------------------------------------------------------*/
-gf_result_t integration_modifier(size_t i, signal_config_t s, uint32_t attendu)
+gf_result_t integration_modifier(size_t index_signal, signal_config_t signal, uint32_t attendu)
 {
     if (attendu && attendu != etat.revision)
     {
         return resultat(GF_CONFLIT, "EDITION");
     }
-    if (!signaux_valide(s))
+    if (!signaux_valide(signal))
     {
         return resultat(GF_ARGUMENT, "EDITION");
     }
-    if (i > signaux_nombre() || i >= SIGNAL_MAX)
+    if (index_signal > signaux_nombre() || index_signal >= SIGNAL_MAX)
     {
         return resultat(GF_INDEX, "EDITION");
     }
-    const signal_config_t *v = signaux_lire(i);
-    if (v && signaux_egaux(*v, s))
+    const signal_config_t *signal_existant = signaux_lire(index_signal);
+    if (signal_existant && signaux_egaux(*signal_existant, signal))
     {
         return resultat(GF_OK, "INCHANGE");
     }
-    if ((int) i == etat.selection)
+    if ((int) index_signal == etat.selection)
     {
-        gf_result_t r = arreter_si_necessaire();
-        if (r != GF_OK)
+        gf_result_t code_operation = arreter_si_necessaire();
+        if (code_operation != GF_OK)
         {
-            return r;
+            return code_operation;
         }
         etat.commande_courante = false;
     }
     bool ok;
-    if (v)
+    if (signal_existant)
     {
-        ok = signaux_modifier(i, s);
+        ok = signaux_modifier(index_signal, signal);
     }
     else
     {
-        ok = signaux_ajouter(s);
+        ok = signaux_ajouter(signal);
     }
     if (!ok)
     {
@@ -523,24 +523,24 @@ gf_result_t integration_modifier(size_t i, signal_config_t s, uint32_t attendu)
     return resultat(GF_OK, "RAM");
 }
 
-gf_result_t integration_dupliquer(size_t i, int *nouveau)
+gf_result_t integration_dupliquer(size_t index_signal, int *nouveau)
 {
-    int n = signaux_dupliquer(i);
-    if (n < 0)
+    int nouvel_index = signaux_dupliquer(index_signal);
+    if (nouvel_index < 0)
     {
         return resultat(GF_CAPACITE, "DUPLIQUER");
     }
     if (nouveau)
     {
-        *nouveau = n;
+        *nouveau = nouvel_index;
     }
     changer();
     return resultat(GF_OK, "RAM");
 }
 
-gf_result_t integration_supprimer(size_t i)
+gf_result_t integration_supprimer(size_t index_signal)
 {
-    if (!signaux_lire(i))
+    if (!signaux_lire(index_signal))
     {
         return resultat(GF_INDEX, "SUPPRIMER");
     }
@@ -548,12 +548,12 @@ gf_result_t integration_supprimer(size_t i)
     {
         return resultat(GF_CAPACITE, "SUPPRIMER");
     }
-    gf_result_t r = arreter_si_necessaire();
-    if (r != GF_OK)
+    gf_result_t code_operation = arreter_si_necessaire();
+    if (code_operation != GF_OK)
     {
-        return r;
+        return code_operation;
     }
-    (void) signaux_supprimer(i);
+    (void) signaux_supprimer(index_signal);
     etat.selection = -1;
     etat.commande_courante = false;
     etat_arrete();
@@ -563,10 +563,10 @@ gf_result_t integration_supprimer(size_t i)
 
 gf_result_t integration_usine(void)
 {
-    gf_result_t r = arreter_si_necessaire();
-    if (r != GF_OK)
+    gf_result_t code_operation = arreter_si_necessaire();
+    if (code_operation != GF_OK)
     {
-        return r;
+        return code_operation;
     }
     signaux_retablir_usine();
     etat.selection = -1;
@@ -578,7 +578,7 @@ gf_result_t integration_usine(void)
 
 gf_result_t integration_sauver(void)
 {
-    if (!hw.eeprom)
+    if (!materiel.eeprom)
     {
         return resultat(GF_ABSENT, "SAUVEGARDE");
     }
@@ -600,21 +600,21 @@ gf_result_t integration_charger(void)
     {
         return resultat(GF_OCCUPE, "CHARGER");
     }
-    if (!hw.eeprom)
+    if (!materiel.eeprom)
     {
         return resultat(GF_ABSENT, "CHARGER");
     }
-    gf_result_t r = arreter_si_necessaire();
-    if (r != GF_OK)
+    gf_result_t code_operation = arreter_si_necessaire();
+    if (code_operation != GF_OK)
     {
-        return r;
+        return code_operation;
     }
-    r = stockage_charger(&memoire, &instantane);
-    etat.chargement = r;
+    code_operation = stockage_charger(&memoire, &instantane);
+    etat.chargement = code_operation;
     etat.alerte_stockage = memoire.alerte;
-    if (r != GF_OK)
+    if (code_operation != GF_OK)
     {
-        return resultat(r, "CHARGER");
+        return resultat(code_operation, "CHARGER");
     }
     (void) signaux_remplacer_ensemble(instantane.signaux, instantane.nombre);
     profil = instantane.calibration;
@@ -628,25 +628,25 @@ gf_result_t integration_charger(void)
     return resultat(GF_OK, "CHARGE");
 }
 
-gf_result_t integration_importer_calibration(const uint8_t b[CAL_IMAGE_SIZE])
+gf_result_t integration_importer_calibration(const uint8_t image_binaire[CAL_IMAGE_SIZE])
 {
-    calibration_t p;
-    gf_result_t r = calibration_decoder(b, &p);
-    if (r != GF_OK)
+    calibration_t profil_decode;
+    gf_result_t code_operation = calibration_decoder(image_binaire, &profil_decode);
+    if (code_operation != GF_OK)
     {
-        return resultat(r, "PROFIL");
+        return resultat(code_operation, "PROFIL");
     }
-    r = calibration_valider(&p);
-    if (r != GF_OK)
+    code_operation = calibration_valider(&profil_decode);
+    if (code_operation != GF_OK)
     {
-        return resultat(r, "PROFIL");
+        return resultat(code_operation, "PROFIL");
     }
-    r = arreter_si_necessaire();
-    if (r != GF_OK)
+    code_operation = arreter_si_necessaire();
+    if (code_operation != GF_OK)
     {
-        return r;
+        return code_operation;
     }
-    profil = p;
+    profil = profil_decode;
     etat.commande_courante = false;
     etat_arrete();
     changer();
@@ -655,10 +655,10 @@ gf_result_t integration_importer_calibration(const uint8_t b[CAL_IMAGE_SIZE])
 
 gf_result_t integration_effacer_calibration(void)
 {
-    gf_result_t r = arreter_si_necessaire();
-    if (r != GF_OK)
+    gf_result_t code_operation = arreter_si_necessaire();
+    if (code_operation != GF_OK)
     {
-        return r;
+        return code_operation;
     }
     memset(&profil, 0, sizeof(profil));
     etat.commande_courante = false;
@@ -667,24 +667,24 @@ gf_result_t integration_effacer_calibration(void)
     return resultat(GF_OK, "NON_CALIBRE");
 }
 
-gf_result_t integration_commander_digital(unsigned c, uint32_t hz, uint16_t duty, bool actif)
+gf_result_t integration_commander_digital(unsigned canal, uint32_t frequence_hz, uint16_t rapport_pm, bool actif)
 {
-    if (c >= DIGITAL_NOMBRE_CANAUX || duty > DIGITAL_RAPPORT_MAX_PM ||(actif &&(!hz || hz > DIGITAL_FREQUENCE_MAX_HZ)))
+    if (canal >= DIGITAL_NOMBRE_CANAUX || rapport_pm > DIGITAL_RAPPORT_MAX_PM ||(actif &&(!frequence_hz || frequence_hz > DIGITAL_FREQUENCE_MAX_HZ)))
     {
         return resultat(GF_ARGUMENT, "DIGITAL");
     }
-    if (!hw.digitales[c] || !hw.digital)
+    if (!materiel.digitales[canal] || !materiel.digital)
     {
         return resultat(GF_NON_SUPPORTE, "DIGITAL");
     }
-    gf_result_t r = hw.digital(hw.ctx, c, hz, duty, actif);
-    digitales[c].erreur = r;
-    digitales[c].connu = r == GF_OK;
-    if (r == GF_OK)
+    gf_result_t code_operation = materiel.digital(materiel.ctx, canal, frequence_hz, rapport_pm, actif);
+    digitales[canal].erreur = code_operation;
+    digitales[canal].connu = code_operation == GF_OK;
+    if (code_operation == GF_OK)
     {
-        digitales[c].actif = actif;
-        digitales[c].frequence_hz = hz;
-        digitales[c].rapport_pm = duty;
+        digitales[canal].actif = actif;
+        digitales[canal].frequence_hz = frequence_hz;
+        digitales[canal].rapport_pm = rapport_pm;
     }
-    return resultat(r, "DIGITAL");
+    return resultat(code_operation, "DIGITAL");
 }

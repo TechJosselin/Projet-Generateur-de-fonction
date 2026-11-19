@@ -153,15 +153,15 @@ bool signaux_modifie(size_t index_signal)
 
 size_t signaux_nombre_modifies(void)
 {
-    size_t n = 0;
+    size_t nombre_modifies = 0;
     for (size_t index_signal = 0; index_signal < nombre_signaux; index_signal++)
     {
         if (profils_modifies[index_signal])
         {
-            n++;
+            nombre_modifies++;
         }
     }
-    return n;
+    return nombre_modifies;
 }
 
 bool signaux_modifications_en_ram(void)

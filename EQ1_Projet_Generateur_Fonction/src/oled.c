@@ -102,7 +102,7 @@ static const uint8_t *glyphe(char caractere)
 {
     if (caractere >= 'a' && caractere <= 'z')
     {
-        caractere =(char)(caractere - 32);
+        caractere = (char)(caractere - ('a' - 'A'));
     }
     for (unsigned index_glyphe = 0; index_glyphe < sizeof(police_embarquee) / sizeof(police_embarquee[0]); index_glyphe++)
     {
@@ -359,7 +359,7 @@ void oled_segment(int x, int y, int x1, int y1)
     {
         sy = 1;
     }
-    int e = dx - dy;
+    int erreur_bresenham = dx - dy;
     for (;;)
     {
         oled_pixel(x, y);
@@ -367,15 +367,15 @@ void oled_segment(int x, int y, int x1, int y1)
         {
             break;
         }
-        int e2 = 2 * e;
-        if (e2 > - dy)
+        int erreur_doublee = 2 * erreur_bresenham;
+        if (erreur_doublee > - dy)
         {
-            e -= dy;
+            erreur_bresenham -= dy;
             x += sx;
         }
-        if (e2 < dx)
+        if (erreur_doublee < dx)
         {
-            e += dx;
+            erreur_bresenham += dx;
             y += sy;
         }
     }
