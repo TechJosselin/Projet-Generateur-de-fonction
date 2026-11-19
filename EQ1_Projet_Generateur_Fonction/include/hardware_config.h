@@ -36,8 +36,8 @@ BUS I2C PARTAGE
  * faux "ABS" lors des i2c_master_probe(). On utilise donc 50 ms, comme pour l'OLED.
  */
 #define SYSTEM_I2C_PORT                         I2C_NUM_0
-#define SYSTEM_I2C_SDA_GPIO                     GPIO_NUM_22
-#define SYSTEM_I2C_SCL_GPIO                     GPIO_NUM_23
+#define SYSTEM_I2C_SDA_GPIO                     GPIO_NUM_23
+#define SYSTEM_I2C_SCL_GPIO                     GPIO_NUM_22
 #define SYSTEM_I2C_GLITCH_IGNORE_COUNT          7U
 #define SYSTEM_I2C_ENABLE_INTERNAL_PULLUPS      1
 #define SYSTEM_I2C_DIAG_PROBE_TIMEOUT_MS        50
@@ -84,8 +84,8 @@ ENCODEUR ROTATIF PEC12R-4220F-S0024
  * de détente après une séquence complète, ce qui filtre les rebonds mécaniques.
  * Le sens logique est inversé pour obtenir : droite = descendre, gauche = remonter.
  */
-#define SYSTEM_ENCODER_A_GPIO                   GPIO_NUM_1
-#define SYSTEM_ENCODER_B_GPIO                   GPIO_NUM_2
+#define SYSTEM_ENCODER_A_GPIO                   GPIO_NUM_2
+#define SYSTEM_ENCODER_B_GPIO                   GPIO_NUM_1
 #define SYSTEM_ENCODER_BUTTON_GPIO              GPIO_NUM_0
 #define SYSTEM_ENCODER_REVERSE_DIRECTION        1
 
