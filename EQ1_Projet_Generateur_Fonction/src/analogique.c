@@ -177,8 +177,8 @@ gf_result_t calibration_encoder(const calibration_t *profil, uint8_t image_binai
     memcpy(image_binaire + CAL_POSITION_IDENTIFIANT, profil->carte, CAL_IDENTIFIANT_OCTETS);
     gf_p32(image_binaire + CAL_POSITION_CHARGE, profil->charge_ohm);
     gf_p32(image_binaire + CAL_POSITION_SORTIE_MIN, (uint32_t) profil->sortie_min_mv);
-    gf_p32(image_binaire + CAL_POSITION_VERSION0, (uint32_t) profil->sortie_max_mv);
-    gf_p16(image_binaire + CAL_POSITION_VERSION4, profil->stabilisation_ms);
+    gf_p32(image_binaire + CAL_POSITION_SORTIE_MAX, (uint32_t) profil->sortie_max_mv);
+    gf_p16(image_binaire + CAL_POSITION_STABILISATION, profil->stabilisation_ms);
     for (unsigned index_forme = 0; index_forme < CAL_FORMES_NOMBRE; index_forme++)
     {
         const cal_forme_t *calibration_forme =&profil->formes[index_forme];
@@ -245,8 +245,8 @@ gf_result_t calibration_decoder(const uint8_t image_binaire[CAL_IMAGE_SIZE], cal
     memcpy(profil_decode.carte, image_binaire + CAL_POSITION_IDENTIFIANT, CAL_IDENTIFIANT_OCTETS);
     profil_decode.charge_ohm = gf_u32(image_binaire + CAL_POSITION_CHARGE);
     profil_decode.sortie_min_mv = gf_i32(image_binaire + CAL_POSITION_SORTIE_MIN);
-    profil_decode.sortie_max_mv = gf_i32(image_binaire + CAL_POSITION_VERSION0);
-    profil_decode.stabilisation_ms = gf_u16(image_binaire + CAL_POSITION_VERSION4);
+    profil_decode.sortie_max_mv = gf_i32(image_binaire + CAL_POSITION_SORTIE_MAX);
+    profil_decode.stabilisation_ms = gf_u16(image_binaire + CAL_POSITION_STABILISATION);
     for (unsigned index_forme = 0; index_forme < CAL_FORMES_NOMBRE; index_forme++)
     {
         cal_forme_t *calibration_forme =&profil_decode.formes[index_forme];
