@@ -22,6 +22,15 @@
 #define MENU_PAS_DEFILEMENT_MS           350U
 #define MENU_PAUSE_DEFILEMENT_PAS        4U
 #define MENU_RAFRAICHISSEMENT_MS         250U
+#define MENU_TAMPON_TEXTE_OCTETS         64U
+#define MENU_TAMPON_MESURE_OCTETS        24U
+#define MENU_MARGE_X_PX                  4
+#define MENU_SELECTION_HAUTEUR_PX       16
+#define MENU_BANDEAU_Y_PX               10
+#define MENU_MESSAGE_VIDE_LIGNE          3
+#define MENU_FREQUENCE_Y_PX             14
+#define MENU_AMPLITUDE_Y_PX             31
+#define MENU_OFFSET_Y_PX                48
 /* Types de pages de l'interface locale. */
 typedef enum
 {
@@ -50,25 +59,25 @@ static uint32_t derniere_animation_ms;     // Date de l'animation precedente
 
 static gf_result_t dernier_resultat;    // Code du dernier resultat a afficher
 /*==================================== FONCTIONS ================================================*/
-static int borne(int x, int lo, int hi)
+static int borne(int valeur, int minimum, int maximum)
 {
-    if (x < lo)
+    if (valeur < minimum)
     {
-        return lo;
+        return minimum;
     }
-    if (x > hi)
+    if (valeur > maximum)
     {
-        return hi;
+        return maximum;
     }
-    return x;
+    return valeur;
 }
 
 static void recadrer(void)
 {
-    size_t n = signaux_nombre();
-    if (n)
+    size_t nombre_signaux = signaux_nombre();
+    if (nombre_signaux)
     {
-        index_signal = borne(index_signal, 0, (int) n - 1);
+        index_signal = borne(index_signal, 0, (int) nombre_signaux - 1);
     }
     else
     {
@@ -76,13 +85,13 @@ static void recadrer(void)
     }
 }
 
-static void aller(page_t p)
+static void aller(page_t nouvelle_page)
 {
-    if (page != p)
+    if (page != nouvelle_page)
     {
         fenetre_valide = false;
     }
-    page = p;
+    page = nouvelle_page;
     sale = true;
     action_en_attente = true;
     defilement_necessaire = false;
@@ -90,32 +99,32 @@ static void aller(page_t p)
 
 static void texte(int ligne, const char *format, ...)
 {
-    char b[64];
-    va_list a;
-    va_start(a, format);
-    vsnprintf(b, sizeof(b), format, a);
-    va_end(a);
-    oled_ligne(ligne, b, false);
+    char buffer_texte[MENU_TAMPON_TEXTE_OCTETS];
+    va_list arguments;
+    va_start(arguments, format);
+    vsnprintf(buffer_texte, sizeof(buffer_texte), format, arguments);
+    va_end(arguments);
+    oled_ligne(ligne, buffer_texte, false);
 }
 
 static void bandeau(const char *titre)
 {
     oled_ligne(0, titre, true);
-    oled_segment(0, 10, 127, 10);
+    oled_segment(0, MENU_BANDEAU_Y_PX, OLED_LARGEUR_PX - 1, MENU_BANDEAU_Y_PX);
 }
 
-static void ligne_signal(int i, char *b, size_t n)
+static void ligne_signal(int index_signal_demande, char *destination, size_t taille_destination)
 {
-    const signal_config_t *s = signaux_lire((size_t) i);
-    if (!s)
+    const signal_config_t *signal = signaux_lire((size_t) index_signal_demande);
+    if (!signal)
     {
-        *b = 0;
+        *destination = 0;
         return;
     }
-    char a[24], f[24];
-    signaux_formater_tension(a, sizeof(a), s->amplitude_mvpp, false);
-    signaux_formater_frequence(f, sizeof(f), s->frequence_hz);
-    snprintf(b, n, "%02d %s %s %s", i + 1, signaux_type_court(s->forme), a, f);
+    char amplitude_texte[MENU_TAMPON_MESURE_OCTETS], frequence_texte[MENU_TAMPON_MESURE_OCTETS];
+    signaux_formater_tension(amplitude_texte, sizeof(amplitude_texte), signal->amplitude_mvpp, false);
+    signaux_formater_frequence(frequence_texte, sizeof(frequence_texte), signal->frequence_hz);
+    snprintf(destination, taille_destination, "%02d %s %s %s", index_signal_demande + 1, signaux_type_court(signal->forme), amplitude_texte, frequence_texte);
 }
 
 /* Bandeau fixe et trois grandes lignes ; seule la ligne pointee defile.
@@ -127,20 +136,20 @@ static void ligne_signal(int i, char *b, size_t n)
 static void liste(const char *titre)
 {
     bandeau(titre);
-    int total =(int) signaux_nombre();
-    if (total <= 0)
+    int nombre_signaux =(int) signaux_nombre();
+    if (nombre_signaux <= 0)
     {
-        texte(3, "AUCUN SIGNAL / USB");
+        texte(MENU_MESSAGE_VIDE_LIGNE, "AUCUN SIGNAL / USB");
         return;
     }
-    int max_premiere = 0;
-    if (total > MENU_LIGNES_VISIBLES)
+    int premiere_ligne_max = 0;
+    if (nombre_signaux > MENU_LIGNES_VISIBLES)
     {
-        max_premiere = total - MENU_LIGNES_VISIBLES;
+        premiere_ligne_max = nombre_signaux - MENU_LIGNES_VISIBLES;
     }
     if (!fenetre_valide)
     {
-        premiere_ligne = borne(index_signal - 1, 0, max_premiere);
+        premiere_ligne = borne(index_signal - 1, 0, premiere_ligne_max);
         fenetre_valide = true;
     }
     if (index_signal < premiere_ligne)
@@ -149,16 +158,16 @@ static void liste(const char *titre)
     }
     if (index_signal >= premiere_ligne + MENU_LIGNES_VISIBLES)
     {
-        premiere_ligne = index_signal - 2;
+        premiere_ligne = index_signal - (MENU_LIGNES_VISIBLES - 1);
     }
-    premiere_ligne = borne(premiere_ligne, 0, max_premiere);
-    for (int i = 0; i < MENU_LIGNES_VISIBLES && premiere_ligne + i < total; i++)
+    premiere_ligne = borne(premiere_ligne, 0, premiere_ligne_max);
+    for (int index_ligne = 0; index_ligne < MENU_LIGNES_VISIBLES && premiere_ligne + index_ligne < nombre_signaux; index_ligne++)
     {
-        char complet[64] = { 0 }, visible[OLED_GRAND_NB_CARACTERES + 1];
-        ligne_signal(premiere_ligne + i, complet, sizeof(complet));
-        bool choisi = premiere_ligne + i == index_signal;
-        size_t longueur_texte = strlen(complet), decalage_texte = 0;
-        if (choisi && longueur_texte > OLED_GRAND_NB_CARACTERES)
+        char texte_complet[MENU_TAMPON_TEXTE_OCTETS] = { 0 }, texte_visible[OLED_GRAND_NB_CARACTERES + 1];
+        ligne_signal(premiere_ligne + index_ligne, texte_complet, sizeof(texte_complet));
+        bool est_selectionne = premiere_ligne + index_ligne == index_signal;
+        size_t longueur_texte = strlen(texte_complet), decalage_texte = 0;
+        if (est_selectionne && longueur_texte > OLED_GRAND_NB_CARACTERES)
         {
             defilement_necessaire = true;
             uint32_t temps_depuis_evenement_ms = horloge_menu_ms - dernier_evenement_ms;
@@ -176,30 +185,30 @@ static void liste(const char *titre)
                 }
             }
         }
-        size_t n = longueur_texte - decalage_texte;
-        if (n > OLED_GRAND_NB_CARACTERES)
+        size_t nombre_caracteres_visibles = longueur_texte - decalage_texte;
+        if (nombre_caracteres_visibles > OLED_GRAND_NB_CARACTERES)
         {
-            n = OLED_GRAND_NB_CARACTERES;
+            nombre_caracteres_visibles = OLED_GRAND_NB_CARACTERES;
         }
-        memcpy(visible, complet + decalage_texte, n);
-        visible[n] = 0;
-        if (!choisi && longueur_texte > OLED_GRAND_NB_CARACTERES)
+        memcpy(texte_visible, texte_complet + decalage_texte, nombre_caracteres_visibles);
+        texte_visible[nombre_caracteres_visibles] = 0;
+        if (!est_selectionne && longueur_texte > OLED_GRAND_NB_CARACTERES)
         {
-            visible[OLED_GRAND_NB_CARACTERES - 1] = '>';
+            texte_visible[OLED_GRAND_NB_CARACTERES - 1] = '>';
         }
-        int y = MENU_ORIGINE_LIGNES_Y_PX + i * MENU_HAUTEUR_LIGNE_PX;
-        oled_texte_grand(4, y, visible);
-        if (choisi)
+        int position_y_px = MENU_ORIGINE_LIGNES_Y_PX + index_ligne * MENU_HAUTEUR_LIGNE_PX;
+        oled_texte_grand(MENU_MARGE_X_PX, position_y_px, texte_visible);
+        if (est_selectionne)
         {
-            oled_inverser_zone(0, y - 1, OLED_LARGEUR_PX, 16);
+            oled_inverser_zone(0, position_y_px - 1, OLED_LARGEUR_PX, MENU_SELECTION_HAUTEUR_PX);
         }
     }
 }
 
-static void message(gf_result_t r, bool arret)
+static void message(gf_result_t resultat, bool echec_arret)
 {
-    dernier_resultat = r;
-    erreur_arret = arret;
+    dernier_resultat = resultat;
+    erreur_arret = echec_arret;
     aller(MESSAGE);
 }
 
@@ -216,18 +225,18 @@ static void valider(void)
     }
     /* Une seule validation locale : selection ET activation coordonnee.
      * Ne pas activer l'ancienne selection si choisir() a echoue. */
-    gf_result_t r = integration_choisir((size_t) index_signal);
-    if (r == GF_OK)
+    gf_result_t resultat = integration_choisir((size_t) index_signal);
+    if (resultat == GF_OK)
     {
-        r = integration_activer();
+        resultat = integration_activer();
     }
-    if (r == GF_OK)
+    if (resultat == GF_OK)
     {
         aller(DETAIL);
     }
     else
     {
-        message(r, false);
+        message(resultat, false);
     }
 }
 
@@ -257,28 +266,28 @@ void menu_initialiser(void)
  * Fonction   : menu_traiter()
  * Descriptif : Interprete les rotations, les clics et les appuis longs.
  *--------------------------------------------------------------------------------------------------*/
-void menu_traiter(evenement_ui_t e)
+void menu_traiter(evenement_ui_t evenement)
 {
-    if (e != UI_ROTATION_PLUS && e != UI_ROTATION_MOINS && e != UI_CLIC && e != UI_APPUI_LONG)
+    if (evenement != UI_ROTATION_PLUS && evenement != UI_ROTATION_MOINS && evenement != UI_CLIC && evenement != UI_APPUI_LONG)
     {
         return;
     }
     recadrer();
     action_en_attente = true;
-    if (e == UI_APPUI_LONG)
+    if (evenement == UI_APPUI_LONG)
     {
-        gf_result_t r = integration_arreter();
-        if (r == GF_OK)
+        gf_result_t resultat = integration_arreter();
+        if (resultat == GF_OK)
         {
             aller(LISTE);
         }
         else
         {
-            message(r, true);
+            message(resultat, true);
         }
         return;
     }
-    if (e == UI_CLIC)
+    if (evenement == UI_CLIC)
     {
         valider();
         sale = true;
@@ -289,18 +298,18 @@ void menu_traiter(evenement_ui_t e)
     {
         aller(LISTE);
     }
-    int d;
-    if (e == UI_ROTATION_PLUS)
+    int direction_rotation;
+    if (evenement == UI_ROTATION_PLUS)
     {
-        d = 1;
+        direction_rotation = 1;
     }
     else
     {
-        d = -1;
+        direction_rotation = -1;
     }
     if (signaux_nombre())
     {
-        index_signal = borne(index_signal + d, 0, (int) signaux_nombre() - 1);
+        index_signal = borne(index_signal + direction_rotation, 0, (int) signaux_nombre() - 1);
     }
     sale = true;
 }
@@ -311,36 +320,36 @@ void menu_traiter(evenement_ui_t e)
  *--------------------------------------------------------------------------------------------------*/
 static void afficher(void)
 {
-    const integration_statut_t *st = integration_statut();
+    const integration_statut_t *statut_systeme = integration_statut();
     recadrer();
-    const signal_config_t *s = signaux_lire((size_t) index_signal);
-    char b[64], v[24];
+    const signal_config_t *signal = signaux_lire((size_t) index_signal);
+    char texte_affiche[MENU_TAMPON_TEXTE_OCTETS], valeur_texte[MENU_TAMPON_MESURE_OCTETS];
     oled_effacer();
     defilement_necessaire = false;
-    bool actif = st->etat == SYS_ACTIF_COMMANDE;
-    bool nominal = actif && st->nominal_courant;
-    bool dds_seul = actif && !st->commande_courante && !nominal;
+    bool sortie_active = statut_systeme->etat == SYS_ACTIF_COMMANDE;
+    bool commande_nominale = sortie_active && statut_systeme->nominal_courant;
+    bool dds_seul_actif = sortie_active && !statut_systeme->commande_courante && !commande_nominale;
     const char *label_liste = "ON";
-    if (dds_seul)
+    if (dds_seul_actif)
     {
         label_liste = "DDS";
     }
-    else if (nominal)
+    else if (commande_nominale)
     {
         label_liste = "NOM";
     }
     const char *label_detail = "OFF";
-    if (st->etat == SYS_DEFAUT)
+    if (statut_systeme->etat == SYS_DEFAUT)
     {
         label_detail = "DEFAUT";
     }
-    else if (actif && st->selection == index_signal)
+    else if (sortie_active && statut_systeme->selection == index_signal)
     {
-        if (dds_seul)
+        if (dds_seul_actif)
         {
             label_detail = "DDS SEUL";
         }
-        else if (nominal)
+        else if (commande_nominale)
         {
             label_detail = "NOM";
         }
@@ -357,63 +366,63 @@ static void afficher(void)
     switch (page)
     {
     case LISTE:
-        if (st->etat == SYS_DEFAUT)
+        if (statut_systeme->etat == SYS_DEFAUT)
         {
-            snprintf(b, sizeof(b), "SIG %d/%u DEFAUT", index_signal + 1, (unsigned) signaux_nombre());
+            snprintf(texte_affiche, sizeof(texte_affiche), "SIG %d/%u DEFAUT", index_signal + 1, (unsigned) signaux_nombre());
         }
-        else if (actif)
+        else if (sortie_active)
         {
-            snprintf(b, sizeof(b), "SIG %d/%u %s S%d", index_signal + 1, (unsigned) signaux_nombre(), label_liste, st->selection + 1);
+            snprintf(texte_affiche, sizeof(texte_affiche), "SIG %d/%u %s S%d", index_signal + 1, (unsigned) signaux_nombre(), label_liste, statut_systeme->selection + 1);
         }
         else
         {
-            snprintf(b, sizeof(b), "SIG %d/%u OFF", index_signal + 1, (unsigned) signaux_nombre());
+            snprintf(texte_affiche, sizeof(texte_affiche), "SIG %d/%u OFF", index_signal + 1, (unsigned) signaux_nombre());
         }
-        liste(b);
+        liste(texte_affiche);
         break;
     case DETAIL:
-        if (!s)
+        if (!signal)
         {
             aller(LISTE);
             liste("AUCUN SIGNAL / USB");
             break;
         }
-        snprintf(b, sizeof(b), "S%d %s / %s", index_signal + 1, signaux_type_court(s->forme), label_detail);
-        bandeau(b);
-        signaux_formater_frequence(v, sizeof(v), s->frequence_hz);
-        snprintf(b, sizeof(b), "F %s", v);
-        oled_texte_grand(4, 14, b);
-        if (dds_seul && st->selection == index_signal)
+        snprintf(texte_affiche, sizeof(texte_affiche), "S%d %s / %s", index_signal + 1, signaux_type_court(signal->forme), label_detail);
+        bandeau(texte_affiche);
+        signaux_formater_frequence(valeur_texte, sizeof(valeur_texte), signal->frequence_hz);
+        snprintf(texte_affiche, sizeof(texte_affiche), "F %s", valeur_texte);
+        oled_texte_grand(MENU_MARGE_X_PX, MENU_FREQUENCE_Y_PX, texte_affiche);
+        if (dds_seul_actif && statut_systeme->selection == index_signal)
         {
             /* Les valeurs du catalogue ne sont PAS des tensions appliquees.
              * Ne pas afficher 1.000 Vpp comme si les EPOT avaient ete regles. */
-            oled_texte_grand(4, 31, "A NON REGLEE");
-            oled_texte_grand(4, 48, "O NON REGLE");
+            oled_texte_grand(MENU_MARGE_X_PX, MENU_AMPLITUDE_Y_PX, "A NON REGLEE");
+            oled_texte_grand(MENU_MARGE_X_PX, MENU_OFFSET_Y_PX, "O NON REGLE");
         }
-        else if (nominal && st->selection == index_signal)
+        else if (commande_nominale && statut_systeme->selection == index_signal)
         {
             /* ~ : estimation des codes commandes, pas mesure VOUT. */
-            signaux_formater_tension(v, sizeof(v), st->codes.amplitude_estimee_mvpp, false);
-            snprintf(b, sizeof(b), "A~%spp", v);
-            oled_texte_grand(4, 31, b);
-            signaux_formater_tension(v, sizeof(v), st->codes.offset_estime_mv, true);
-            snprintf(b, sizeof(b), "O~%s", v);
-            oled_texte_grand(4, 48, b);
+            signaux_formater_tension(valeur_texte, sizeof(valeur_texte), statut_systeme->codes.amplitude_estimee_mvpp, false);
+            snprintf(texte_affiche, sizeof(texte_affiche), "A~%spp", valeur_texte);
+            oled_texte_grand(MENU_MARGE_X_PX, MENU_AMPLITUDE_Y_PX, texte_affiche);
+            signaux_formater_tension(valeur_texte, sizeof(valeur_texte), statut_systeme->codes.offset_estime_mv, true);
+            snprintf(texte_affiche, sizeof(texte_affiche), "O~%s", valeur_texte);
+            oled_texte_grand(MENU_MARGE_X_PX, MENU_OFFSET_Y_PX, texte_affiche);
         }
         else
         {
-            signaux_formater_tension(v, sizeof(v), s->amplitude_mvpp, false);
-            snprintf(b, sizeof(b), "A %spp", v);
-            oled_texte_grand(4, 31, b);
-            signaux_formater_tension(v, sizeof(v), s->offset_mv, true);
-            snprintf(b, sizeof(b), "O %s", v);
-            oled_texte_grand(4, 48, b);
+            signaux_formater_tension(valeur_texte, sizeof(valeur_texte), signal->amplitude_mvpp, false);
+            snprintf(texte_affiche, sizeof(texte_affiche), "A %spp", valeur_texte);
+            oled_texte_grand(MENU_MARGE_X_PX, MENU_AMPLITUDE_Y_PX, texte_affiche);
+            signaux_formater_tension(valeur_texte, sizeof(valeur_texte), signal->offset_mv, true);
+            snprintf(texte_affiche, sizeof(texte_affiche), "O %s", valeur_texte);
+            oled_texte_grand(MENU_MARGE_X_PX, MENU_OFFSET_Y_PX, texte_affiche);
         }
         break;
     case MESSAGE:
         texte(0, "%s", label_erreur);
         texte(2, "%s", gf_result_nom(dernier_resultat));
-        texte(4, "%s", st->etape);
+        texte(4, "%s", statut_systeme->etape);
         texte(6, "REGLAGES : USB SEUL");
         texte(7, "CLIC LISTE / LONG OFF");
         break;
@@ -424,9 +433,9 @@ static void afficher(void)
  * Fonction   : menu_periodique()
  * Descriptif : Planifie le rafraichissement et l'animation OLED.
  *--------------------------------------------------------------------------------------------------*/
-void menu_periodique(uint32_t t)
+void menu_periodique(uint32_t maintenant_ms)
 {
-    horloge_menu_ms = t;
+    horloge_menu_ms = maintenant_ms;
     if (action_en_attente)
     {
         dernier_evenement_ms = horloge_menu_ms;
