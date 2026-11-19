@@ -1,7 +1,14 @@
+/*==================================================================================================
+ * CFPT - Equipe 1 - Projet generateur de fonctions
+ * MODULE     : DRIVER/GPIO.H
+ * DESCRIPTIF : Remplacements de types, constantes et appels GPIO ESP-IDF.
+ *==================================================================================================*/
 #ifndef DRIVER_GPIO_H
 #define DRIVER_GPIO_H
 #include <stdint.h>
 #include "esp_err.h"
+
+/*================================= DONNEES DE SIMULATION =========================================*/
 typedef int gpio_num_t;
 #define GPIO_IS_VALID_OUTPUT_GPIO(x) ((x)>=0 && (x)<31)
 #define GPIO_NUM_0 0
@@ -20,11 +27,18 @@ typedef int gpio_num_t;
 #define GPIO_PULLDOWN_DISABLE 0
 #define GPIO_INTR_DISABLE 0
 #define GPIO_INTR_ANYEDGE 3
-typedef struct {uint64_t pin_bit_mask;int mode,pull_up_en,pull_down_en,intr_type;} gpio_config_t;
-esp_err_t gpio_set_level(int p,int v);
+typedef struct
+{
+    uint64_t pin_bit_mask;
+    int mode;          // Direction du port
+    int pull_up_en;    // Activation du pull-up
+    int pull_down_en;  // Activation du pull-down
+    int intr_type;     // Mode d'interruption
+} gpio_config_t;
+esp_err_t gpio_set_level(int p, int v);
 esp_err_t gpio_config(const gpio_config_t *c);
 int gpio_get_level(int p);
 esp_err_t gpio_install_isr_service(int flags);
-esp_err_t gpio_isr_handler_add(int p,void (*fn)(void*),void *arg);
+esp_err_t gpio_isr_handler_add(int p, void(*fn)(void *), void *arg);
 esp_err_t gpio_isr_handler_remove(int p);
 #endif
