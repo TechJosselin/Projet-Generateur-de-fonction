@@ -13,14 +13,16 @@ static bool pin_autorise(int p) {
 }
 void digitales_initialiser(void) {
     for(unsigned c=0;c<2;c++) {
-        disponibles[c]=false;configures[c]=false;
+        disponibles[c]=false;
+configures[c]=false;
         if(pins[0]==pins[1] || !pin_autorise(pins[c]))continue;
         gpio_config_t g={.pin_bit_mask=1ULL<<pins[c],.mode=GPIO_MODE_OUTPUT,
             .pull_up_en=GPIO_PULLUP_DISABLE,.pull_down_en=GPIO_PULLDOWN_DISABLE,.intr_type=GPIO_INTR_DISABLE};
         if(gpio_set_level(pins[c],0)==ESP_OK && gpio_config(&g)==ESP_OK)disponibles[c]=true;
     }
 }
-bool digitales_disponible(unsigned c){return c<2 && disponibles[c];}
+bool digitales_disponible(unsigned c){return c<2 && disponibles[c];
+}
 gf_result_t digitales_commander(unsigned c,uint32_t hz,uint16_t duty,bool on) {
     if(c>=2 || duty>1000)return GF_ARGUMENT;
     if(!disponibles[c])return GF_NON_SUPPORTE;
@@ -37,13 +39,16 @@ gf_result_t digitales_commander(unsigned c,uint32_t hz,uint16_t duty,bool on) {
     if(e!=ESP_OK)goto fail;
     uint32_t real=ledc_get_freq(LEDC_LOW_SPEED_MODE,(ledc_timer_t)c);
     uint32_t diff=real>hz?real-hz:hz-real;
-    if(!real || (uint64_t)diff*100U>hz){e=ESP_ERR_INVALID_ARG;goto fail;}
+    if(!real || (uint64_t)diff*100U>hz){e=ESP_ERR_INVALID_ARG;
+goto fail;
+}
     ledc_channel_config_t ch={.gpio_num=pins[c],.speed_mode=LEDC_LOW_SPEED_MODE,
         .channel=(ledc_channel_t)c,.timer_sel=(ledc_timer_t)c,.intr_type=LEDC_INTR_DISABLE,
         .duty=(duty==1000)?0:(uint32_t)((((uint64_t)1<<bits)*duty+500)/1000),.hpoint=0};
     /* Arrondir une consigne presque pleine sans depasser le compteur. */
     if(ch.duty>=(1U<<bits))ch.duty=(1U<<bits)-1;
-    e=ledc_channel_config(&ch);if(e!=ESP_OK)goto fail;
+    e=ledc_channel_config(&ch);
+if(e!=ESP_OK)goto fail;
     configures[c]=true;
     if(duty==0 || duty==1000)e=ledc_stop(LEDC_LOW_SPEED_MODE,(ledc_channel_t)c,duty==1000);
     if(e==ESP_OK)return GF_OK;
