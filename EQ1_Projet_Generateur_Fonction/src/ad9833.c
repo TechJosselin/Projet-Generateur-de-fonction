@@ -13,25 +13,40 @@
 #include "freertos/FreeRTOS.h"
 
 /*============================== VARIABLES ET CONFIGURATION =======================================*/
-#define B28 0x2000U
-#define RESET 0x0100U
+/* Bits du registre de controle et format du mot DDS (documentation AD9833). */
+#define AD9833_B28                         0x2000U
+#define AD9833_RESET                       0x0100U
+#define AD9833_ONDE_TRIANGLE_BITS          0x0002U
+#define AD9833_ONDE_CARRE_BITS             0x0028U
+#define AD9833_FREQUENCE_REGISTRE          0x4000U
+#define AD9833_PHASE_REGISTRE_ZERO         0xC000U
+#define AD9833_MASQUE_MOT_FREQUENCE        0x3FFFU
+#define AD9833_DECALAGE_MOT_HAUT           14U
+#define AD9833_COEFFICIENT_DDS             268435456.0 /* 2 puissance 28 */
+#define AD9833_SPI_MOT_BITS                16U
+#define AD9833_SPI_MOT_OCTETS              2U
+#define AD9833_SPI_MODE                    2
+#define AD9833_SPI_FILE_TRANSACTIONS       1
+#define AD9833_SPI_TIMEOUT_MS              50U
+#define AD9833_SPI_MAX_HZ                  40000000U
+#define AD9833_HORLOGE_MAX_HZ              25000000U
 static spi_host_device_t host;
 static ad9833_config_t configuration;
 static spi_device_handle_t device;
 static spi_transaction_t transaction;
 /* Reste valide meme apres un timeout. */
 static bool initialise, configure, actif, connu, en_attente, bus_propre;
-static uint32_t mclk;
-static uint16_t controle = B28 | RESET;
+static uint32_t frequence_horloge_hz;
+static uint16_t registre_controle = AD9833_B28 | AD9833_RESET;
 static double frequence;
 static ad9833_waveform_t forme;
 /*==================================== FONCTIONS ================================================*/
 static TickType_t delai(void)
 {
-    TickType_t t = pdMS_TO_TICKS(50);
-    if (t)
+    TickType_t ticks_attente = pdMS_TO_TICKS(AD9833_SPI_TIMEOUT_MS);
+    if (ticks_attente)
     {
-        return t;
+        return ticks_attente;
     }
     return 1;
 }
@@ -43,12 +58,12 @@ static esp_err_t finir_transaction(void)
         return ESP_OK;
     }
     spi_transaction_t *terminee = NULL;
-    esp_err_t e = spi_device_get_trans_result(device, &terminee, delai());
-    if (e == ESP_OK)
+    esp_err_t resultat_spi = spi_device_get_trans_result(device, &terminee, delai());
+    if (resultat_spi == ESP_OK)
     {
         en_attente = false;
     }
-    return e;
+    return resultat_spi;
 }
 
 static esp_err_t ecrire(uint16_t v)
@@ -57,20 +72,20 @@ static esp_err_t ecrire(uint16_t v)
     {
         return ESP_ERR_INVALID_STATE;
     }
-    esp_err_t e = finir_transaction();
-    if (e != ESP_OK)
+    esp_err_t resultat_spi = finir_transaction();
+    if (resultat_spi != ESP_OK)
     {
-        return e;
+        return resultat_spi;
     }
     memset(&transaction, 0, sizeof(transaction));
     transaction.flags = SPI_TRANS_USE_TXDATA;
-    transaction.length = 16;
+    transaction.length = AD9833_SPI_MOT_BITS;
     transaction.tx_data[0] =(uint8_t)(v >> 8);
     transaction.tx_data[1] =(uint8_t) v;
-    e = spi_device_queue_trans(device, &transaction, delai());
-    if (e != ESP_OK)
+    resultat_spi = spi_device_queue_trans(device, &transaction, delai());
+    if (resultat_spi != ESP_OK)
     {
-        return e;
+        return resultat_spi;
     }
     en_attente = true;
     return finir_transaction();
@@ -78,24 +93,24 @@ static esp_err_t ecrire(uint16_t v)
 
 static esp_err_t reset(void)
 {
-    esp_err_t e = ecrire(B28 | RESET);
-    connu = e == ESP_OK;
+    esp_err_t resultat_spi = ecrire(AD9833_B28 | AD9833_RESET);
+    connu = resultat_spi == ESP_OK;
     actif = false;
-    if (e == ESP_OK)
+    if (resultat_spi == ESP_OK)
     {
-        controle = B28 | RESET;
+        registre_controle = AD9833_B28 | AD9833_RESET;
     }
-    return e;
+    return resultat_spi;
 }
 
-static esp_err_t echec(esp_err_t e)
+static esp_err_t echec(esp_err_t resultat_spi)
 {
     configure = false;
     connu = false;
     actif = false;
     (void) reset();
     /* Le code d'erreur initial reste prioritaire. */
-    return e;
+    return resultat_spi;
 }
 
 /*================================ INTERFACE PUBLIQUE ============================================*/
@@ -107,7 +122,7 @@ esp_err_t Ad9833_Init(const ad9833_config_t *c)
 {
     if (!c || !GPIO_IS_VALID_OUTPUT_GPIO(c->mosi_gpio) || !GPIO_IS_VALID_OUTPUT_GPIO(c->sclk_gpio) || !GPIO_IS_VALID_OUTPUT_GPIO(c->fsync_gpio)
         || c->mosi_gpio == c->sclk_gpio || c->mosi_gpio == c->fsync_gpio || c->sclk_gpio == c->fsync_gpio || !c->spi_clock_hz
-        || c->spi_clock_hz > 40000000 || !c->mclk_hz || c->mclk_hz > 25000000)
+        || c->spi_clock_hz > AD9833_SPI_MAX_HZ || !c->mclk_hz || c->mclk_hz > AD9833_HORLOGE_MAX_HZ)
     {
         return ESP_ERR_INVALID_ARG;
     }
@@ -125,48 +140,48 @@ esp_err_t Ad9833_Init(const ad9833_config_t *c)
     {
         return ESP_ERR_INVALID_STATE;
     }
-    spi_bus_config_t b = {
+    spi_bus_config_t configuration_bus_spi = {
         .mosi_io_num = c->mosi_gpio,
         .miso_io_num = -1,
         .sclk_io_num = c->sclk_gpio,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = 2
+        .max_transfer_sz = AD9833_SPI_MOT_OCTETS
     };
-    esp_err_t e = spi_bus_initialize(c->host, &b, SPI_DMA_CH_AUTO);
-    if (e != ESP_OK)
+    esp_err_t resultat_spi = spi_bus_initialize(c->host, &configuration_bus_spi, SPI_DMA_CH_AUTO);
+    if (resultat_spi != ESP_OK)
     {
-        return e;
+        return resultat_spi;
     }
     /* Pas de reutilisation d'un bus de brochage inconnu. */
     host = c->host;
     bus_propre = true;
-    spi_device_interface_config_t d = {
+    spi_device_interface_config_t configuration_dispositif_spi = {
         .clock_speed_hz =(int) c->spi_clock_hz,
-        .mode = 2,
+        .mode = AD9833_SPI_MODE,
         .spics_io_num = c->fsync_gpio,
-        .queue_size = 1
+        .queue_size = AD9833_SPI_FILE_TRANSACTIONS
     };
-    e = spi_bus_add_device(host, &d, &device);
-    if (e != ESP_OK)
+    resultat_spi = spi_bus_add_device(host, &configuration_dispositif_spi, &device);
+    if (resultat_spi != ESP_OK)
     {
         (void) spi_bus_free(host);
         bus_propre = false;
         device = NULL;
-        return e;
+        return resultat_spi;
     }
     configuration = *c;
     initialise = true;
-    mclk = c->mclk_hz;
+    frequence_horloge_hz = c->mclk_hz;
     configure = false;
     connu = false;
     actif = false;
     en_attente = false;
-    e = Ad9833_SetSignal(AD9833_WAVE_SINE, 0);
-    if (e != ESP_OK)
+    resultat_spi = Ad9833_SetSignal(AD9833_WAVE_SINE, 0);
+    if (resultat_spi != ESP_OK)
     {
         (void) Ad9833_Deinit();
-        return e;
+        return resultat_spi;
     }
     return ESP_OK;
 }
@@ -179,15 +194,15 @@ esp_err_t Ad9833_Deinit(void)
     }
     if (device)
     {
-        esp_err_t e = reset();
-        if (e != ESP_OK)
+        esp_err_t resultat_spi = reset();
+        if (resultat_spi != ESP_OK)
         {
-            return e;
+            return resultat_spi;
         }
-        e = spi_bus_remove_device(device);
-        if (e != ESP_OK)
+        resultat_spi = spi_bus_remove_device(device);
+        if (resultat_spi != ESP_OK)
         {
-            return e;
+            return resultat_spi;
         }
         device = NULL;
         initialise = false;
@@ -195,14 +210,14 @@ esp_err_t Ad9833_Deinit(void)
     }
     if (bus_propre)
     {
-        esp_err_t e = spi_bus_free(host);
-        if (e != ESP_OK)
+        esp_err_t resultat_spi = spi_bus_free(host);
+        if (resultat_spi != ESP_OK)
         {
-            return e;
+            return resultat_spi;
         }
         bus_propre = false;
     }
-    mclk = 0;
+    frequence_horloge_hz = 0;
     frequence = 0;
     forme = AD9833_WAVE_SINE;
     return ESP_OK;
@@ -214,45 +229,45 @@ esp_err_t Ad9833_Deinit(void)
  *--------------------------------------------------------------------------------------------------*/
 esp_err_t Ad9833_SetSignal(ad9833_waveform_t f, double hz)
 {
-    if (!initialise || !device || !mclk)
+    if (!initialise || !device || !frequence_horloge_hz)
     {
         return ESP_ERR_INVALID_STATE;
     }
-    if (!isfinite(hz) || hz < 0 || hz >(double) mclk / 2 || f < AD9833_WAVE_SINE || f > AD9833_WAVE_SQUARE)
+    if (!isfinite(hz) || hz < 0 || hz >(double) frequence_horloge_hz / 2 || f < AD9833_WAVE_SINE || f > AD9833_WAVE_SQUARE)
     {
         return ESP_ERR_INVALID_ARG;
     }
-    uint16_t bits = 0;
+    uint16_t bits_forme = 0;
     if (f == AD9833_WAVE_TRIANGLE)
     {
-        bits = 0x0002U;
+        bits_forme = AD9833_ONDE_TRIANGLE_BITS;
     }
     else if (f == AD9833_WAVE_SQUARE)
     {
-        bits = 0x0028U;
+        bits_forme = AD9833_ONDE_CARRE_BITS;
     }
-    uint32_t mot =(uint32_t)(hz * 268435456.0 / mclk + 0.5);
+    uint32_t mot_frequence =(uint32_t)(hz * AD9833_COEFFICIENT_DDS / frequence_horloge_hz + 0.5);
     configure = false;
-    esp_err_t e = reset();
-    if (e != ESP_OK)
+    esp_err_t resultat_spi = reset();
+    if (resultat_spi != ESP_OK)
     {
-        return echec(e);
+        return echec(resultat_spi);
     }
-    const uint16_t mots[] = {
-        (uint16_t)(0x4000U |(mot & 0x3FFFU)),
-        (uint16_t)(0x4000U |((mot >> 14) & 0x3FFFU)),
-        0xC000U,
-        (uint16_t)(B28 | RESET | bits)
+    const uint16_t mots_configuration[] = {
+        (uint16_t)(AD9833_FREQUENCE_REGISTRE |(mot_frequence & AD9833_MASQUE_MOT_FREQUENCE)),
+        (uint16_t)(AD9833_FREQUENCE_REGISTRE |((mot_frequence >> AD9833_DECALAGE_MOT_HAUT) & AD9833_MASQUE_MOT_FREQUENCE)),
+        AD9833_PHASE_REGISTRE_ZERO,
+        (uint16_t)(AD9833_B28 | AD9833_RESET | bits_forme)
     };
-    for (unsigned i = 0; i < sizeof(mots) / sizeof(mots[0]); i++)
+    for (unsigned index_mot = 0; index_mot < sizeof(mots_configuration) / sizeof(mots_configuration[0]); index_mot++)
     {
-        e = ecrire(mots[i]);
-        if (e != ESP_OK)
+        resultat_spi = ecrire(mots_configuration[index_mot]);
+        if (resultat_spi != ESP_OK)
         {
-            return echec(e);
+            return echec(resultat_spi);
         }
     }
-    controle = B28 | RESET | bits;
+    registre_controle = AD9833_B28 | AD9833_RESET | bits_forme;
     frequence = hz;
     forme = f;
     configure = true;
@@ -274,21 +289,21 @@ esp_err_t Ad9833_EnableOutput(bool enable)
     uint16_t c;
     if (enable)
     {
-        c =(uint16_t)(controle & ~RESET);
+        c =(uint16_t)(registre_controle & ~AD9833_RESET);
     }
     else
     {
-        c =(uint16_t)(controle | RESET);
+        c =(uint16_t)(registre_controle | AD9833_RESET);
     }
-    esp_err_t e = ecrire(c);
-    if (e != ESP_OK)
+    esp_err_t resultat_spi = ecrire(c);
+    if (resultat_spi != ESP_OK)
     {
         connu = false;
         configure = false;
         actif = false;
-        return e;
+        return resultat_spi;
     }
-    controle = c;
+    registre_controle = c;
     connu = true;
     actif = enable;
     return ESP_OK;
