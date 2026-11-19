@@ -49,10 +49,10 @@ size_t usb_service_espace_tx(void)
     return USB_TX_CAPACITE - octets_a_emettre;
 }
 
-static void emettre(const char *s)
+static void emettre(const char *trame)
 {
-    size_t n = strlen(s);
-    if (n > usb_service_espace_tx())
+    size_t longueur_trame = strlen(trame);
+    if (longueur_trame > usb_service_espace_tx())
     {
         stats.abandons_tx++;
         return;
@@ -61,30 +61,30 @@ static void emettre(const char *s)
     {
         dernier_octet_tx_ms = horloge_usb_ms;
     }
-    for (size_t i = 0; i < n; i++)
+    for (size_t index_octet = 0; index_octet < longueur_trame; index_octet++)
     {
-        buffer_tx[(debut_tx + octets_a_emettre + i) % USB_TX_CAPACITE] =(uint8_t) s[i];
+        buffer_tx[(debut_tx + octets_a_emettre + index_octet) % USB_TX_CAPACITE] =(uint8_t) trame[index_octet];
     }
-    octets_a_emettre += n;
+    octets_a_emettre += longueur_trame;
 }
 
-static void erreur(gf_result_t r)
+static void erreur(gf_result_t resultat)
 {
-    char b[USB_SERVICE_REPONSE_ERREUR_OCTETS];
-    snprintf(b, sizeof(b), "$ERR:%s#", gf_result_nom(r));
-    emettre(b);
+    char trame_erreur[USB_SERVICE_REPONSE_ERREUR_OCTETS];
+    snprintf(trame_erreur, sizeof(trame_erreur), "$ERR:%s#", gf_result_nom(resultat));
+    emettre(trame_erreur);
 }
 
-static void ok(gf_result_t r, const char *action)
+static void ok(gf_result_t resultat, const char *action)
 {
-    if (r != GF_OK)
+    if (resultat != GF_OK)
     {
-        erreur(r);
+        erreur(resultat);
         return;
     }
-    char b[USB_SERVICE_REPONSE_OK_OCTETS];
-    snprintf(b, sizeof(b), "$OK:%s:%" PRIu32 "#", action, integration_statut()->revision);
-    emettre(b);
+    char trame_accuse[USB_SERVICE_REPONSE_OK_OCTETS];
+    snprintf(trame_accuse, sizeof(trame_accuse), "$OK:%s:%" PRIu32 "#", action, integration_statut()->revision);
+    emettre(trame_accuse);
 }
 
 /*--------------------------------------------------------------------------------------------------
@@ -355,22 +355,22 @@ void usb_service_periodique(uint32_t maintenant_ms)
     }
 }
 
-const uint8_t *usb_service_tx(size_t *n)
+const uint8_t *usb_service_tx(size_t *longueur_max)
 {
-    if (!n)
+    if (!longueur_max)
     {
         return NULL;
     }
-    * n = octets_a_emettre;
-    if (*n > USB_TX_CAPACITE - debut_tx)
+    * longueur_max = octets_a_emettre;
+    if (*longueur_max > USB_TX_CAPACITE - debut_tx)
     {
-        *n = USB_TX_CAPACITE - debut_tx;
+        *longueur_max = USB_TX_CAPACITE - debut_tx;
     }
-    if (*n > USB_SERVICE_ENVOI_MAX_OCTETS)
+    if (*longueur_max > USB_SERVICE_ENVOI_MAX_OCTETS)
     {
-        *n = USB_SERVICE_ENVOI_MAX_OCTETS;
+        *longueur_max = USB_SERVICE_ENVOI_MAX_OCTETS;
     }
-    if (*n)
+    if (*longueur_max)
     {
         return buffer_tx + debut_tx;
     }
@@ -394,7 +394,7 @@ void usb_service_tx_consomme(size_t nombre_octets, uint32_t maintenant_ms)
 
 bool usb_service_reinitialisation_transport(void)
 {
-    bool b = reinitialiser_transport;
+    bool reinitialisation_demandee = reinitialiser_transport;
     reinitialiser_transport = false;
-    return b;
+    return reinitialisation_demandee;
 }

@@ -65,19 +65,19 @@ static bool nombre(const char *texte, int32_t minimum, int32_t maximum, bool sig
     return true;
 }
 
-static int hex(char c)
+static int hex(char caractere)
 {
-    if (c >= '0' && c <= '9')
+    if (caractere >= '0' && caractere <= '9')
     {
-        return c - '0';
+        return caractere - '0';
     }
-    if (c >= 'A' && c <= 'F')
+    if (caractere >= 'A' && caractere <= 'F')
     {
-        return c - 'A' + 10;
+        return caractere - 'A' + 10;
     }
-    if (c >= 'a' && c <= 'f')
+    if (caractere >= 'a' && caractere <= 'f')
     {
-        return c - 'a' + 10;
+        return caractere - 'a' + 10;
     }
     return- 1;
 }

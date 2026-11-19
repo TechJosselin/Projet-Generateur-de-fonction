@@ -17,9 +17,9 @@
 static const int pins[DIGITAL_NOMBRE_CANAUX] = { SYSTEM_DIGITAL_1_GPIO, SYSTEM_DIGITAL_2_GPIO };
 static bool disponibles[DIGITAL_NOMBRE_CANAUX], configures[DIGITAL_NOMBRE_CANAUX];
 /*==================================== FONCTIONS ================================================*/
-static bool pin_autorise(int p)
+static bool pin_autorise(int broche)
 {
-    if (!GPIO_IS_VALID_OUTPUT_GPIO(p))
+    if (!GPIO_IS_VALID_OUTPUT_GPIO(broche))
     {
         return false;
     }
@@ -48,9 +48,9 @@ static bool pin_autorise(int p)
         29,
         30
     };
-    for (unsigned i = 0; i < sizeof(reserves) / sizeof(reserves[0]); i++)
+    for (unsigned index_broche = 0; index_broche < sizeof(reserves) / sizeof(reserves[0]); index_broche++)
     {
-        if (p == reserves[i])
+        if (broche == reserves[index_broche])
         {
             return false;
         }

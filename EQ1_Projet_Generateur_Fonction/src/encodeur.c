@@ -50,9 +50,9 @@ static void interruption(void *unused)
 uint32_t encodeur_pertes(void)
 {
     portENTER_CRITICAL(&verrou);
-    uint32_t v = transitions_perdues;
+    uint32_t compteur_pertes = transitions_perdues;
     portEXIT_CRITICAL(&verrou);
-    return v;
+    return compteur_pertes;
 }
 
 /*--------------------------------------------------------------------------------------------------
@@ -70,39 +70,39 @@ bool encodeur_initialiser(void)
     {
         return false;
     }
-    gpio_config_t g = {
+    gpio_config_t configuration_gpio = {
         .pin_bit_mask =(1ULL << SYSTEM_ENCODER_A_GPIO) |(1ULL << SYSTEM_ENCODER_B_GPIO),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_ANYEDGE
     };
-    esp_err_t e = gpio_config(&g);
-    if (e != ESP_OK)
+    esp_err_t resultat_gpio = gpio_config(&configuration_gpio);
+    if (resultat_gpio != ESP_OK)
     {
         goto fail;
     }
-    g.pin_bit_mask = 1ULL << SYSTEM_ENCODER_BUTTON_GPIO;
-    g.intr_type = GPIO_INTR_DISABLE;
-    e = gpio_config(&g);
-    if (e != ESP_OK)
+    configuration_gpio.pin_bit_mask = 1ULL << SYSTEM_ENCODER_BUTTON_GPIO;
+    configuration_gpio.intr_type = GPIO_INTR_DISABLE;
+    resultat_gpio = gpio_config(&configuration_gpio);
+    if (resultat_gpio != ESP_OK)
     {
         goto fail;
     }
     quadrature_initialiser(&etat_quadrature, lire_etat_ab());
     bouton_initialiser(&etat_bouton, gpio_get_level(SYSTEM_ENCODER_BUTTON_GPIO) == 0, (uint32_t)(esp_timer_get_time() / TEMPS_US_PAR_MS));
-    e = gpio_install_isr_service(0);
-    if (e != ESP_OK && e != ESP_ERR_INVALID_STATE)
+    resultat_gpio = gpio_install_isr_service(0);
+    if (resultat_gpio != ESP_OK && resultat_gpio != ESP_ERR_INVALID_STATE)
     {
         goto fail;
     }
-    e = gpio_isr_handler_add(SYSTEM_ENCODER_A_GPIO, interruption, NULL);
-    if (e != ESP_OK)
+    resultat_gpio = gpio_isr_handler_add(SYSTEM_ENCODER_A_GPIO, interruption, NULL);
+    if (resultat_gpio != ESP_OK)
     {
         goto fail;
     }
-    e = gpio_isr_handler_add(SYSTEM_ENCODER_B_GPIO, interruption, NULL);
-    if (e != ESP_OK)
+    resultat_gpio = gpio_isr_handler_add(SYSTEM_ENCODER_B_GPIO, interruption, NULL);
+    if (resultat_gpio != ESP_OK)
     {
         (void) gpio_isr_handler_remove(SYSTEM_ENCODER_A_GPIO);
         goto fail;
@@ -147,10 +147,10 @@ evenement_ui_t encodeur_lire_evenement(void)
             rotations_en_attente = -ENCODEUR_ROTATIONS_MAX_ATTENTE;
         }
     }
-    evenement_ui_t e = bouton_traiter(&etat_bouton, gpio_get_level(SYSTEM_ENCODER_BUTTON_GPIO) == 0, (uint32_t)(esp_timer_get_time() / TEMPS_US_PAR_MS));
-    if (e != UI_AUCUN)
+    evenement_ui_t evenement_bouton = bouton_traiter(&etat_bouton, gpio_get_level(SYSTEM_ENCODER_BUTTON_GPIO) == 0, (uint32_t)(esp_timer_get_time() / TEMPS_US_PAR_MS));
+    if (evenement_bouton != UI_AUCUN)
     {
-        return e;
+        return evenement_bouton;
     }
     if (rotations_en_attente > 0)
     {
