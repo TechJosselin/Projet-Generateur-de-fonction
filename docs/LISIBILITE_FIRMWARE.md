@@ -49,6 +49,41 @@ Les scripts temporaires utilises pour la migration ne sont pas conserves dans le
 ils ne font pas partie du produit. Le formatage ulterieur se fait avec `.clang-format`,
 qui constitue la convention de style maintenue.
 
+## Constantes et noms de variables
+
+Cette passe complete le reformatage par une separation explicite entre les
+**parametres techniques** et les donnees du cahier des charges.
+
+- **Temporisations** : noms en `_MS` pour les delais USB, OLED, encodeur,
+  anti-rebond et sauvegarde. La conversion microsecondes vers millisecondes
+  est centralisee dans `include/temps.h` (`TEMPS_US_PAR_MS`).
+- **Dimensions** : noms en `_OCTETS` ou `_PX` pour les buffers et la dalle
+  OLED ; ne pas reutiliser la meme constante pour deux significations distinctes.
+- **Protocoles binaires** : les positions des champs CAL1 et GFN2 sont
+  identifiees par leur nom ; ces valeurs sont imposees par le format de stockage,
+  pas par l'implementation des pilotes.
+- **Pilotes** : registres DDS/EPOT, taille des mots SPI et seuils de frequence
+  sont nommes. Les constantes associees aux registres materiels ne sont pas
+  des consignes de tension de sortie.
+- **Variables internes** : les noms courts comme `i`, `a`, `b`, `c`,
+  `r` ont ete remplaces dans les fonctions les plus critiques par des
+  noms tels que `index_signal`, `resultat`, `adresse_i2c`,
+  `longueur_trame`, `maintenant_ms` et `code_potentiometre`.
+
+Les champs des structures externes **ESP-IDF** doivent conserver leurs noms
+originaux : par exemple, le champ LEDC `.duty` reste `.duty`, meme si
+notre variable de rapport cyclique est nommee `rapport_pm`.
+
+**Ne pas transformer des donnees en constantes de code par principe :**
+les dix profils d'usine, la table de glyphes OLED et la liste des broches GPIO
+reservees sont des tableaux de donnees. Les valeurs `0` et `1` liees a un
+etat binaire ou un indice evident restent litterales quand cela rend le
+code plus lisible.
+
+Les nouveaux `#define` doivent rester locaux au module lorsque le parametre
+n'est utilise que dans celui-ci. Les seuils partages sont places dans les
+en-tetes concernes (`sorties_digitales.h`, `usb_protocol.h`, `oled.h`).
+
 ## Tests et outils du PC
 
 Les fichiers de test et de maintenance ont egalement ete repris :
