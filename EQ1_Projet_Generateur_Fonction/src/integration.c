@@ -4,14 +4,16 @@
  * DESCRIPTIF : Coordination des etats, des sorties et de la sauvegarde.
  *==================================================================================================*/
 #include "integration.h"
+#include "sorties_digitales.h"
 #include <string.h>
 
 /*============================== VARIABLES ET CONFIGURATION =======================================*/
+#define INTEGRATION_SAUVEGARDE_ATTENTE_MS    300U
 static integration_backend_t hw;
 static stockage_t memoire;
 static calibration_t profil;
 static integration_statut_t etat;
-static digital_statut_t digitales[2];
+static digital_statut_t digitales[DIGITAL_NOMBRE_CANAUX];
 static stockage_donnees_t instantane;
 /* Pas 2 ko de pile par sauvegarde. */
 static uint32_t horloge, derniere_modification;
@@ -30,7 +32,7 @@ const calibration_t *integration_calibration(void)
 
 const digital_statut_t *integration_digital_statut(unsigned c)
 {
-    if (c < 2)
+    if (c < DIGITAL_NOMBRE_CANAUX)
     {
         return&digitales[c];
     }
@@ -80,7 +82,7 @@ bool integration_memoire_disponible(void)
 
 bool integration_sortie_digitale_disponible(unsigned c)
 {
-    return c < 2 && hw.digitales[c];
+    return c < DIGITAL_NOMBRE_CANAUX && hw.digitales[c];
 }
 
 static gf_result_t resultat(gf_result_t r, const char *etape)
@@ -179,7 +181,7 @@ static gf_result_t arreter_si_necessaire(void)
 gf_result_t integration_arreter(void)
 {
     gf_result_t r = arreter_analogique();
-    for (unsigned c = 0; c < 2; c++)
+    for (unsigned c = 0; c < DIGITAL_NOMBRE_CANAUX; c++)
     {
         if (hw.digitales[c])
         {
@@ -249,7 +251,7 @@ void integration_initialiser_avec(integration_backend_t backend, stockage_io_t i
     {
         (void) arreter_analogique();
     }
-    for (unsigned c = 0; c < 2; c++)
+    for (unsigned c = 0; c < DIGITAL_NOMBRE_CANAUX; c++)
     {
         if (hw.digitales[c])
         {
@@ -298,7 +300,7 @@ void integration_periodique(uint32_t now)
     {
         sauvegarde_demandee = false;
     }
-    if (sauvegarde_demandee &&(uint32_t)(now - derniere_modification) >= 300)
+    if (sauvegarde_demandee &&(uint32_t)(now - derniere_modification) >= INTEGRATION_SAUVEGARDE_ATTENTE_MS)
     {
         sauvegarde_demandee = false;
         capturer();
@@ -583,7 +585,7 @@ gf_result_t integration_sauver(void)
     if (etat.modifie)
     {
         sauvegarde_demandee = true;
-        derniere_modification = horloge - 300U;
+        derniere_modification = horloge - INTEGRATION_SAUVEGARDE_ATTENTE_MS;
     }
     return resultat(GF_OK, "SAUVEGARDE_DEMANDEE");
 }
@@ -667,7 +669,7 @@ gf_result_t integration_effacer_calibration(void)
 
 gf_result_t integration_commander_digital(unsigned c, uint32_t hz, uint16_t duty, bool actif)
 {
-    if (c >= 2 || duty > 1000 ||(actif &&(!hz || hz > 1000000)))
+    if (c >= DIGITAL_NOMBRE_CANAUX || duty > DIGITAL_RAPPORT_MAX_PM ||(actif &&(!hz || hz > DIGITAL_FREQUENCE_MAX_HZ)))
     {
         return resultat(GF_ARGUMENT, "DIGITAL");
     }

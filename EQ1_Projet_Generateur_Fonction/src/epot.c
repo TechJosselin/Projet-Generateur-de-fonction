@@ -11,9 +11,6 @@
 
 /*============================== VARIABLES ET CONFIGURATION =======================================*/
 /* Champs du protocole MCP45HV51 : codes TCON et WIPER. */
-#define EPOT_NOMBRE_CANAUX               2U
-#define EPOT_ADRESSE_I2C_MIN             0x3CU
-#define EPOT_ADRESSE_I2C_MAX             0x3FU
 #define EPOT_TAILLE_REPONSE_LECTURE      2U
 #define EPOT_REGISTRE_DECALAGE_BITS      4U
 #define EPOT_COMMANDE_LECTURE_BITS       0x0CU
@@ -27,14 +24,14 @@ static struct
     bool valide;
 }
 
-potentiometres[EPOT_NOMBRE_CANAUX];
+potentiometres[EPOT_CHANNEL_COUNT];
 static bool initialise;
 static i2c_master_bus_handle_t bus_initial;
-static uint8_t adresses[EPOT_NOMBRE_CANAUX];
+static uint8_t adresses[EPOT_CHANNEL_COUNT];
 /*==================================== FONCTIONS ================================================*/
 static bool canal_valide(epot_channel_t canal)
 {
-    return(unsigned) canal < EPOT_NOMBRE_CANAUX;
+    return(unsigned) canal < EPOT_CHANNEL_COUNT;
 }
 
 static esp_err_t lire(i2c_master_dev_handle_t dispositif, uint8_t registre, uint8_t *code)
@@ -81,7 +78,7 @@ esp_err_t Epot_Deinit(void)
 {
     esp_err_t premier = ESP_OK;
     initialise = false;
-    for (unsigned canal = 0; canal < EPOT_NOMBRE_CANAUX; canal++)
+    for (unsigned canal = 0; canal < EPOT_CHANNEL_COUNT; canal++)
     {
         potentiometres[canal].valide = false;
         if (potentiometres[canal].handle)
@@ -106,7 +103,7 @@ esp_err_t Epot_Deinit(void)
  *--------------------------------------------------------------------------------------------------*/
 esp_err_t Epot_Init(i2c_master_bus_handle_t bus, uint8_t adresse_gain, uint8_t adresse_offset)
 {
-    if (!bus || adresse_gain < EPOT_ADRESSE_I2C_MIN || adresse_gain > EPOT_ADRESSE_I2C_MAX || adresse_offset < EPOT_ADRESSE_I2C_MIN || adresse_offset > EPOT_ADRESSE_I2C_MAX || adresse_gain == adresse_offset)
+    if (!bus || adresse_gain < EPOT_I2C_ADDRESS_MIN || adresse_gain > EPOT_I2C_ADDRESS_MAX || adresse_offset < EPOT_I2C_ADDRESS_MIN || adresse_offset > EPOT_I2C_ADDRESS_MAX || adresse_gain == adresse_offset)
     {
         return ESP_ERR_INVALID_ARG;
     }
@@ -126,9 +123,9 @@ esp_err_t Epot_Init(i2c_master_bus_handle_t bus, uint8_t adresse_gain, uint8_t a
             return resultat_i2c;
         }
     }
-    const uint8_t adresses_a_tester[EPOT_NOMBRE_CANAUX] = { adresse_gain, adresse_offset };
+    const uint8_t adresses_a_tester[EPOT_CHANNEL_COUNT] = { adresse_gain, adresse_offset };
     esp_err_t resultat_i2c;
-    for (unsigned canal = 0; canal < EPOT_NOMBRE_CANAUX; canal++)
+    for (unsigned canal = 0; canal < EPOT_CHANNEL_COUNT; canal++)
     {
         resultat_i2c = i2c_master_probe(bus, adresses_a_tester[canal], EPOT_I2C_TIMEOUT_MS);
         if (resultat_i2c != ESP_OK)

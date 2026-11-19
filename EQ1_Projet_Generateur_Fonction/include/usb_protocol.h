@@ -10,6 +10,8 @@
 
 /*============================== VARIABLES ET CONFIGURATION =======================================*/
 #define USB_TRAME_MAX 96U
+#define USB_CAL_BLOC_OCTETS 32U
+#define USB_CAL_HEX_CARACTERES (2U * USB_CAL_BLOC_OCTETS)
 typedef enum
 {
     USB_ECRIRE, USB_LIRE, USB_TOUT, USB_ETAT, USB_CHOISIR, USB_ON, USB_OFF, USB_SAUVER, USB_CHARGER, USB_USINE, USB_DUPLIQUER,
@@ -24,7 +26,7 @@ typedef struct
     uint32_t frequence;
     uint16_t rapport, position;
     bool actif;
-    uint8_t donnees[32];
+    uint8_t donnees[USB_CAL_BLOC_OCTETS];
 } usb_commande_t;
 /* Analyse syntaxique seulement : aucune mutation, aucun acces materiel. */
 gf_result_t usb_proto_decoder(const char *trame, usb_commande_t *commande);

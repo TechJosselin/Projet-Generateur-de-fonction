@@ -6,6 +6,7 @@
 #ifndef INTEGRATION_H
 #define INTEGRATION_H
 #include "stockage.h"
+#include "sorties_digitales.h"
 
 /*============================== VARIABLES ET CONFIGURATION =======================================*/
 typedef enum
@@ -15,7 +16,7 @@ typedef enum
 typedef struct
 {
     bool i2c, dds, epots, eeprom;
-    bool digitales[2];
+    bool digitales[DIGITAL_NOMBRE_CANAUX];
     void *ctx;
     gf_result_t(*arreter)(void *);
     gf_result_t(*dds_configurer)(void *, const signal_config_t *);

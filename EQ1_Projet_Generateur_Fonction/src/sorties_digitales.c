@@ -9,8 +9,13 @@
 #include "driver/ledc.h"
 
 /*============================== VARIABLES ET CONFIGURATION =======================================*/
-static const int pins[2] = { SYSTEM_DIGITAL_1_GPIO, SYSTEM_DIGITAL_2_GPIO };
-static bool disponibles[2], configures[2];
+#define DIGITAL_LEDC_RESOLUTION_INITIALE_BITS 14U
+#define DIGITAL_LEDC_RESOLUTION_MIN_BITS      1U
+#define DIGITAL_LEDC_HORLOGE_REFERENCE_HZ     40000000U
+#define DIGITAL_LEDC_ERREUR_MAX_POURCENT      1U
+#define DIGITAL_POURCENT_BASE               100U
+static const int pins[DIGITAL_NOMBRE_CANAUX] = { SYSTEM_DIGITAL_1_GPIO, SYSTEM_DIGITAL_2_GPIO };
+static bool disponibles[DIGITAL_NOMBRE_CANAUX], configures[DIGITAL_NOMBRE_CANAUX];
 /*==================================== FONCTIONS ================================================*/
 static bool pin_autorise(int p)
 {
@@ -56,134 +61,134 @@ static bool pin_autorise(int p)
 /*================================ INTERFACE PUBLIQUE ============================================*/
 void digitales_initialiser(void)
 {
-    for (unsigned c = 0; c < 2; c++)
+    for (unsigned canal = 0; canal < DIGITAL_NOMBRE_CANAUX; canal++)
     {
-        disponibles[c] = false;
-        configures[c] = false;
-        if (pins[0] == pins[1] || !pin_autorise(pins[c]))
+        disponibles[canal] = false;
+        configures[canal] = false;
+        if (pins[0] == pins[1] || !pin_autorise(pins[canal]))
         {
             continue;
         }
-        gpio_config_t g = {
-            .pin_bit_mask = 1ULL << pins[c],
+        gpio_config_t configuration_gpio = {
+            .pin_bit_mask = 1ULL << pins[canal],
             .mode = GPIO_MODE_OUTPUT,
             .pull_up_en = GPIO_PULLUP_DISABLE,
             .pull_down_en = GPIO_PULLDOWN_DISABLE,
             .intr_type = GPIO_INTR_DISABLE
         };
-        if (gpio_set_level(pins[c], 0) == ESP_OK && gpio_config(&g) == ESP_OK)
+        if (gpio_set_level(pins[canal], 0) == ESP_OK && gpio_config(&configuration_gpio) == ESP_OK)
         {
-            disponibles[c] = true;
+            disponibles[canal] = true;
         }
     }
 }
 
-bool digitales_disponible(unsigned c)
+bool digitales_disponible(unsigned canal)
 {
-    return c < 2 && disponibles[c];
+    return canal < DIGITAL_NOMBRE_CANAUX && disponibles[canal];
 }
 
 /*--------------------------------------------------------------------------------------------------
  * Fonction   : digitales_commander()
  * Descriptif : Configure ou arrete un canal PWM LEDC.
  *--------------------------------------------------------------------------------------------------*/
-gf_result_t digitales_commander(unsigned c, uint32_t hz, uint16_t duty, bool on)
+gf_result_t digitales_commander(unsigned canal, uint32_t frequence_hz, uint16_t rapport_pm, bool activer)
 {
-    if (c >= 2 || duty > 1000)
+    if (canal >= DIGITAL_NOMBRE_CANAUX || rapport_pm > DIGITAL_RAPPORT_MAX_PM)
     {
         return GF_ARGUMENT;
     }
-    if (!disponibles[c])
+    if (!disponibles[canal])
     {
         return GF_NON_SUPPORTE;
     }
-    if (!on)
+    if (!activer)
     {
-        esp_err_t e;
-        if (configures[c])
+        esp_err_t erreur_pilote;
+        if (configures[canal])
         {
-            e = ledc_stop(LEDC_LOW_SPEED_MODE, (ledc_channel_t) c, 0);
+            erreur_pilote = ledc_stop(LEDC_LOW_SPEED_MODE, (ledc_channel_t) canal, 0);
         }
         else
         {
-            e = gpio_set_level(pins[c], 0);
+            erreur_pilote = gpio_set_level(pins[canal], 0);
         }
-        if (e == ESP_OK)
+        if (erreur_pilote == ESP_OK)
         {
             return GF_OK;
         }
         return GF_IO;
     }
-    if (hz < 10 || hz > 1000000)
+    if (frequence_hz < DIGITAL_FREQUENCE_MIN_HZ || frequence_hz > DIGITAL_FREQUENCE_MAX_HZ)
     {
         return GF_PLAGE;
     }
-    unsigned bits = 14;
-    while (bits > 1 &&((uint64_t) hz << bits) > 40000000U)
+    unsigned resolution_bits = DIGITAL_LEDC_RESOLUTION_INITIALE_BITS;
+    while (resolution_bits > DIGITAL_LEDC_RESOLUTION_MIN_BITS &&((uint64_t) frequence_hz << resolution_bits) > DIGITAL_LEDC_HORLOGE_REFERENCE_HZ)
     {
-        bits--;
+        resolution_bits--;
     }
-    ledc_timer_config_t t = {
+    ledc_timer_config_t configuration_timer = {
         .speed_mode = LEDC_LOW_SPEED_MODE,
-        .timer_num =(ledc_timer_t) c,
-        .duty_resolution =(ledc_timer_bit_t) bits,
-        .freq_hz = hz,
+        .timer_num =(ledc_timer_t) canal,
+        .duty_resolution =(ledc_timer_bit_t) resolution_bits,
+        .freq_hz = frequence_hz,
         .clk_cfg = LEDC_USE_XTAL_CLK
     };
-    esp_err_t e = ledc_timer_config(&t);
-    if (e != ESP_OK)
+    esp_err_t erreur_pilote = ledc_timer_config(&configuration_timer);
+    if (erreur_pilote != ESP_OK)
     {
         goto fail;
     }
-    uint32_t real = ledc_get_freq(LEDC_LOW_SPEED_MODE, (ledc_timer_t) c);
-    uint32_t diff = hz - real;
-    if (real > hz)
+    uint32_t frequence_reelle_hz = ledc_get_freq(LEDC_LOW_SPEED_MODE, (ledc_timer_t) canal);
+    uint32_t ecart_frequence_hz = frequence_hz - frequence_reelle_hz;
+    if (frequence_reelle_hz > frequence_hz)
     {
-        diff = real - hz;
+        ecart_frequence_hz = frequence_reelle_hz - frequence_hz;
     }
-    if (!real ||(uint64_t) diff * 100U > hz)
+    if (!frequence_reelle_hz ||(uint64_t) ecart_frequence_hz * DIGITAL_POURCENT_BASE > frequence_hz * DIGITAL_LEDC_ERREUR_MAX_POURCENT)
     {
-        e = ESP_ERR_INVALID_ARG;
+        erreur_pilote = ESP_ERR_INVALID_ARG;
         goto fail;
     }
-    ledc_channel_config_t ch = {
-        .gpio_num = pins[c],
+    ledc_channel_config_t configuration_canal = {
+        .gpio_num = pins[canal],
         .speed_mode = LEDC_LOW_SPEED_MODE,
-        .channel =(ledc_channel_t) c,
-        .timer_sel =(ledc_timer_t) c,
+        .channel =(ledc_channel_t) canal,
+        .timer_sel =(ledc_timer_t) canal,
         .intr_type = LEDC_INTR_DISABLE,
-        .duty = 0,
+        .rapport_pm = 0,
         .hpoint = 0
     };
     /* Calcule le rapport cyclique sans modifier le traitement LEDC de 100 %. */
-    if (duty != 1000)
+    if (rapport_pm != DIGITAL_RAPPORT_MAX_PM)
     {
-        ch.duty =(uint32_t)((((uint64_t) 1 << bits) * duty + 500) / 1000);
+        configuration_canal.rapport_pm =(uint32_t)((((uint64_t) 1 << resolution_bits) * rapport_pm + (DIGITAL_RAPPORT_MAX_PM / 2U)) / DIGITAL_RAPPORT_MAX_PM);
     }
     /* Arrondir une consigne presque pleine sans depasser le compteur. */
-    if (ch.duty >=(1U << bits))
+    if (configuration_canal.rapport_pm >=(1U << resolution_bits))
     {
-        ch.duty =(1U << bits) - 1;
+        configuration_canal.rapport_pm =(1U << resolution_bits) - 1;
     }
-    e = ledc_channel_config(&ch);
-    if (e != ESP_OK)
+    erreur_pilote = ledc_channel_config(&configuration_canal);
+    if (erreur_pilote != ESP_OK)
     {
         goto fail;
     }
-    configures[c] = true;
-    if (duty == 0 || duty == 1000)
+    configures[canal] = true;
+    if (rapport_pm == 0 || rapport_pm == DIGITAL_RAPPORT_MAX_PM)
     {
-        e = ledc_stop(LEDC_LOW_SPEED_MODE, (ledc_channel_t) c, duty == 1000);
+        erreur_pilote = ledc_stop(LEDC_LOW_SPEED_MODE, (ledc_channel_t) canal, rapport_pm == DIGITAL_RAPPORT_MAX_PM);
     }
-    if (e == ESP_OK)
+    if (erreur_pilote == ESP_OK)
     {
         return GF_OK;
     }
-    fail : if (configures[c])
+    fail : if (configures[canal])
     {
-        (void) ledc_stop(LEDC_LOW_SPEED_MODE, (ledc_channel_t) c, 0);
+        (void) ledc_stop(LEDC_LOW_SPEED_MODE, (ledc_channel_t) canal, 0);
     }
-    if (e == ESP_ERR_INVALID_ARG)
+    if (erreur_pilote == ESP_ERR_INVALID_ARG)
     {
         return GF_PLAGE;
     }
