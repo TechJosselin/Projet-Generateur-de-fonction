@@ -4,8 +4,8 @@
  * DESCRIPTIF : Navigation OLED a trois lignes et choix des signaux.
  *==================================================================================================*/
 /* Interface locale en lecture seule : parcourir, activer, arreter.
-* Les configurations et leur persistance sont gerees exclusivement via USB.
-* Rendu trois lignes conserve depuis feature/menu-oled-3-lignes. */
+ * Les configurations et leur persistance sont gerees exclusivement via USB.
+ * Rendu trois lignes conserve depuis feature/menu-oled-3-lignes. */
 #include "menu.h"
 #include "integration.h"
 #include "oled.h"
@@ -14,16 +14,33 @@
 #include <stdarg.h>
 
 /*============================== VARIABLES ET CONFIGURATION =======================================*/
+/* Types de pages de l'interface locale. */
 typedef enum
 {
-    LISTE, DETAIL, MESSAGE
+    LISTE,      // Catalogue des signaux disponibles
+    DETAIL,     // Parametres du signal selectionne
+    MESSAGE     // Information ou erreur d'activation
 } page_t;
-static page_t page;
-static int index_signal, premiere_ligne;
-static bool sale, fenetre_valide, action_en_attente, defilement_necessaire;
-static bool erreur_arret;
-static uint32_t now, dernier_dessin, dernier_evenement, derniere_animation;
-static gf_result_t dernier_resultat;
+
+/* Etat courant du menu : ces variables ne modifient pas le catalogue. */
+static page_t page;                     // Page actuellement affichee
+static int index_signal;                // Index pointe par l'encodeur
+static int premiere_ligne;              // Premier element de la fenetre a trois lignes
+
+/* Gestion du rafraichissement et du defilement de texte. */
+static bool sale;                       // Un dessin de l'ecran est demande
+static bool fenetre_valide;             // La fenetre visible a ete calculee
+static bool action_en_attente;          // Une interaction vient d'etre recue
+static bool defilement_necessaire;      // La ligne selectionnee depasse la largeur utile
+static bool erreur_arret;              // Derniere erreur liee a une demande d'arret
+
+/* Horodatages en millisecondes. */
+static uint32_t now;                    // Horloge courante
+static uint32_t dernier_dessin;         // Date du dernier rafraichissement
+static uint32_t dernier_evenement;      // Date de la derniere action utilisateur
+static uint32_t derniere_animation;     // Date de l'animation precedente
+
+static gf_result_t dernier_resultat;    // Code du dernier resultat a afficher
 /*==================================== FONCTIONS ================================================*/
 static int borne(int x, int lo, int hi)
 {
@@ -94,7 +111,7 @@ static void ligne_signal(int i, char *b, size_t n)
 }
 
 /* Bandeau fixe et trois grandes lignes ; seule la ligne pointee defile.
-* La rotation deplace le pointeur, jamais la configuration ni la sortie. */
+ * La rotation deplace le pointeur, jamais la configuration ni la sortie. */
 /*--------------------------------------------------------------------------------------------------
  * Fonction   : liste()
  * Descriptif : Affiche trois lignes du catalogue et le defilement du choix.
@@ -190,7 +207,7 @@ static void valider(void)
         return;
     }
     /* Une seule validation locale : selection ET activation coordonnee.
-    * Ne pas activer l'ancienne selection si choisir() a echoue. */
+     * Ne pas activer l'ancienne selection si choisir() a echoue. */
     gf_result_t r = integration_choisir((size_t) index_signal);
     if (r == GF_OK)
     {
@@ -361,7 +378,7 @@ static void afficher(void)
         if (dds_seul && st->selection == index_signal)
         {
             /* Les valeurs du catalogue ne sont PAS des tensions appliquees.
-            * Ne pas afficher 1.000 Vpp comme si les EPOT avaient ete regles. */
+             * Ne pas afficher 1.000 Vpp comme si les EPOT avaient ete regles. */
             oled_texte_grand(4, 31, "A NON REGLEE");
             oled_texte_grand(4, 48, "O NON REGLE");
         }
@@ -408,11 +425,13 @@ void menu_periodique(uint32_t t)
         derniere_animation = now;
         action_en_attente = false;
     }
+    /* Le defilement commence apres 900 ms, puis avance toutes les 350 ms. */
     if (defilement_necessaire &&(uint32_t)(now - dernier_evenement) > 900U &&(uint32_t)(now - derniere_animation) >= 350U)
     {
         derniere_animation = now;
         sale = true;
     }
+    /* L'affichage est rafraichi sur modification ou au plus tard apres 250 ms. */
     if (sale ||(uint32_t)(now - dernier_dessin) >= 250)
     {
         afficher();
