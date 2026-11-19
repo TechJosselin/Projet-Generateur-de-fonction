@@ -33,8 +33,14 @@ void signaux_retablir_usine(void){
     signaux_initialiser();
     catalogue_change=true;
 }
-size_t signaux_nombre(void){return total;}
-const signal_config_t *signaux_lire(size_t i){return i<total?&catalogue[i]:NULL;}
+size_t signaux_nombre(void){return total;
+}
+const signal_config_t *signaux_lire(size_t i) {
+    if (i < total) {
+        return &catalogue[i];
+    }
+    return NULL;
+}
 bool signaux_valide(signal_config_t s){
     return s.forme>=SIGNAL_SINUS && s.forme<=SIGNAL_CARRE &&
            s.amplitude_mvpp>=SIGNAL_AMPL_MIN_MVPP && s.amplitude_mvpp<=SIGNAL_AMPL_MAX_MVPP &&
@@ -79,14 +85,23 @@ bool signaux_supprimer(size_t i){
     catalogue_change=true;
     return true;
 }
-bool signaux_modifie(size_t i){return i<total && changes[i];}
-size_t signaux_nombre_modifies(void){
-    size_t n=0;for(size_t i=0;i<total;i++)if(changes[i])n++;return n;
+bool signaux_modifie(size_t i){return i<total && changes[i];
 }
-bool signaux_modifications_en_ram(void){return catalogue_change || signaux_nombre_modifies()!=0;}
+size_t signaux_nombre_modifies(void){
+    size_t n=0;
+for(size_t i=0;i<total;i++)if(changes[i])n++;
+return n;
+}
+bool signaux_modifications_en_ram(void){return catalogue_change || signaux_nombre_modifies()!=0;
+}
 void signaux_variation(signal_config_t *s,signal_champ_t champ,int direction,uint32_t pas){
     if(!s || !direction)return;
-    int sens=direction>0?1:-1;
+    int sens;
+    if (direction > 0) {
+        sens = 1;
+    } else {
+        sens = -1;
+    }
     if(champ==CHAMP_FORME){
         int f=(int)s->forme+sens;
         s->forme=(signal_forme_t)(f<0?2:(f>2?0:f));
@@ -107,16 +122,24 @@ void signaux_variation(signal_config_t *s,signal_champ_t champ,int direction,uin
     }
 }
 const char *signaux_type_court(signal_forme_t s){
-    switch(s){case SIGNAL_SINUS:return "SIN";case SIGNAL_TRIANGLE:return "TRI";
-              case SIGNAL_CARRE:return "CAR";default:return "???";}
+    switch(s){case SIGNAL_SINUS:return "SIN";
+case SIGNAL_TRIANGLE:return "TRI";
+              case SIGNAL_CARRE:return "CAR";
+default:return "???";
+}
 }
 const char *signaux_type_long(signal_forme_t s){
-    switch(s){case SIGNAL_SINUS:return "SINUS";case SIGNAL_TRIANGLE:return "TRIANGLE";
-              case SIGNAL_CARRE:return "CARRE";default:return "INVALIDE";}
+    switch(s){case SIGNAL_SINUS:return "SINUS";
+case SIGNAL_TRIANGLE:return "TRIANGLE";
+              case SIGNAL_CARRE:return "CARRE";
+default:return "INVALIDE";
+}
 }
 void signaux_formater_tension(char *dst,size_t n,int32_t mv,bool signe){
     if(!dst || !n)return;
-    int64_t v=mv;char sign=v<0?'-':'+';if(v<0)v=-v;
+    int64_t v=mv;
+char sign=v<0?'-':'+';
+if(v<0)v=-v;
     if(signe)snprintf(dst,n,"%c%"PRId64".%03"PRId64"V",sign,v/1000,v%1000);
     else snprintf(dst,n,"%"PRId64".%03"PRId64"V",v/1000,v%1000);
 }
@@ -129,10 +152,14 @@ void signaux_formater_frequence(char *dst,size_t n,uint32_t hz){
 
 bool signaux_ajouter(signal_config_t s){
     if(total>=SIGNAL_MAX || !signaux_valide(s))return false;
-    catalogue[total]=s;changes[total++]=true;catalogue_change=true;return true;
+    catalogue[total]=s;
+changes[total++]=true;
+catalogue_change=true;
+return true;
 }
 void signaux_marquer_sauves(void){
-    memset(changes,0,sizeof(changes));catalogue_change=false;
+    memset(changes,0,sizeof(changes));
+catalogue_change=false;
 }
 bool signaux_egaux(signal_config_t a,signal_config_t b){
     return a.forme==b.forme && a.amplitude_mvpp==b.amplitude_mvpp &&
