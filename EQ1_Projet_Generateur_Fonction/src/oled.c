@@ -10,7 +10,9 @@ static uint8_t force=255,prochaine;
 static uint32_t erreurs,dernier_essai;
 static bool present;
 static i2c_master_dev_handle_t device;
-typedef struct {char c;uint8_t x[5];} glyph_t;
+typedef struct {char c;
+uint8_t x[5];
+} glyph_t;
 static const glyph_t police[]={
     {' ',{0x00,0x00,0x00,0x00,0x00}},
     {'!',{0x00,0x00,0x5f,0x00,0x00}},
@@ -72,34 +74,50 @@ static const uint8_t *glyphe(char c) {
 }
 static bool commande(const uint8_t *p,size_t n) {
     if(!device || n>31)return false;
-    uint8_t b[32]={0};memcpy(b+1,p,n);
+    uint8_t b[32]={0};
+memcpy(b+1,p,n);
     return i2c_master_transmit(device,b,n+1,30)==ESP_OK;
 }
 bool oled_initialiser(void) {
     if(present)return true;
     if(i2c_commun_initialiser()!=ESP_OK)return false;
     if(!device) {
-        i2c_master_bus_handle_t bus=i2c_commun_bus();uint8_t a=SYSTEM_OLED_I2C_ADDRESS_PRIMARY;
-        if(i2c_master_probe(bus,a,30)!=ESP_OK){a=SYSTEM_OLED_I2C_ADDRESS_SECONDARY;if(i2c_master_probe(bus,a,30)!=ESP_OK)return false;}
+        i2c_master_bus_handle_t bus=i2c_commun_bus();
+uint8_t a=SYSTEM_OLED_I2C_ADDRESS_PRIMARY;
+        if(i2c_master_probe(bus,a,30)!=ESP_OK){a=SYSTEM_OLED_I2C_ADDRESS_SECONDARY;
+if(i2c_master_probe(bus,a,30)!=ESP_OK)return false;
+}
         i2c_device_config_t c={.dev_addr_length=I2C_ADDR_BIT_LEN_7,.device_address=a,.scl_speed_hz=SYSTEM_OLED_I2C_SPEED_HZ};
-        if(i2c_master_bus_add_device(bus,&c,&device)!=ESP_OK){device=NULL;return false;}
+        if(i2c_master_bus_add_device(bus,&c,&device)!=ESP_OK){device=NULL;
+return false;
+}
     }
     static const uint8_t init[]={0xAE,0xD5,0x80,0xA8,0x3F,0xD3,0x00,0x40,0xAD,0x8B,
         0xA1,0xC8,0xDA,0x12,0x81,0x80,0xD9,0x22,0xDB,0x35,0xA4,0xA6,0xAF};
-    present=commande(init,sizeof(init));if(present)force=255;else erreurs++;
+    present=commande(init,sizeof(init));
+if(present)force=255;
+else erreurs++;
     return present;
 }
-bool oled_est_present(void){return present;}
-uint32_t oled_erreurs(void){return erreurs;}
-void oled_effacer(void){memset(image,0,sizeof(image));}
+bool oled_est_present(void){return present;
+}
+uint32_t oled_erreurs(void){return erreurs;
+}
+void oled_effacer(void){memset(image,0,sizeof(image));
+}
 void oled_texte(int l,int c,const char *p) {
     if(l<0 || l>=8 || c<0 || c>=21 || !p)return;
     int x=c*6;
-    while(*p && x+5<128){memcpy(&image[l][x],glyphe(*p++),5);image[l][x+5]=0;x+=6;}
+    while(*p && x+5<128){memcpy(&image[l][x],glyphe(*p++),5);
+image[l][x+5]=0;
+x+=6;
+}
 }
 void oled_ligne(int l,const char *p,bool inv) {
     if(l<0 || l>=8)return;
-    memset(image[l],0,128);oled_texte(l,0,p);if(inv)for(unsigned x=0;x<128;x++)image[l][x]^=255;
+    memset(image[l],0,128);
+oled_texte(l,0,p);
+if(inv)for(unsigned x=0;x<128;x++)image[l][x]^=255;
 }
 /* Police de la branche menu-oled-3-lignes : colonnes reparties a 1.5x,
  * lignes doublees. Un glyphe occupe 7 pixels dans une cellule de 9 pixels.
@@ -129,22 +147,41 @@ void oled_inverser_zone(int x,int y,int largeur,int hauteur) {
     for(int py=y0;py<y1;py++)
         for(int px=x0;px<x1;px++)image[py/8][px]^=(uint8_t)(1U<<(py%8));
 }
-void oled_pixel(int x,int y){if(x>=0 && x<128 && y>=0 && y<64)image[y/8][x]|=(uint8_t)(1U<<(y%8));}
+void oled_pixel(int x,int y){if(x>=0 && x<128 && y>=0 && y<64)image[y/8][x]|=(uint8_t)(1U<<(y%8));
+}
 void oled_segment(int x,int y,int x1,int y1) {
     /* Coordonnees limitees pour borner le travail du traceur. */
     if(x<0 || x>127 || x1<0 || x1>127 || y<0 || y>63 || y1<0 || y1>63)return;
     int dx=x1>x?x1-x:x-x1,dy=y1>y?y1-y:y-y1,sx=x<x1?1:-1,sy=y<y1?1:-1,e=dx-dy;
-    for(;;){oled_pixel(x,y);if(x==x1 && y==y1)break;int e2=2*e;if(e2> -dy){e-=dy;x+=sx;}if(e2<dx){e+=dx;y+=sy;}}
+    for(;;){oled_pixel(x,y);
+if(x==x1 && y==y1)break;
+int e2=2*e;
+if(e2> -dy){e-=dy;
+x+=sx;
+}if(e2<dx){e+=dx;
+y+=sy;
+}}
 }
 void oled_periodique(uint32_t now) {
-    if(!present){if((uint32_t)(now-dernier_essai)>=2000){dernier_essai=now;(void)oled_initialiser();}return;}
+    if(!present){if((uint32_t)(now-dernier_essai)>=2000){dernier_essai=now;
+(void)oled_initialiser();
+}return;
+}
     for(unsigned n=0;n<8;n++) {
-        unsigned p=prochaine;prochaine=(uint8_t)((prochaine+1)%8);
+        unsigned p=prochaine;
+prochaine=(uint8_t)((prochaine+1)%8);
         if(!(force&(1U<<p)) && memcmp(image[p],envoyee[p],128)==0)continue;
-        uint8_t c[]={(uint8_t)(0xB0|p),0x02,0x10},data[129];data[0]=0x40;memcpy(data+1,image[p],128);
+        uint8_t c[]={(uint8_t)(0xB0|p),0x02,0x10},data[129];
+data[0]=0x40;
+memcpy(data+1,image[p],128);
         if(!commande(c,sizeof(c)) || i2c_master_transmit(device,data,sizeof(data),30)!=ESP_OK) {
-            present=false;erreurs++;dernier_essai=now;return;
+            present=false;
+erreurs++;
+dernier_essai=now;
+return;
         }
-        memcpy(envoyee[p],image[p],128);force&=(uint8_t)~(1U<<p);return;
+        memcpy(envoyee[p],image[p],128);
+force&=(uint8_t)~(1U<<p);
+return;
     }
 }
