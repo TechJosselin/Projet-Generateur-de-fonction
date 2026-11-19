@@ -1,17 +1,18 @@
-# Style C du firmware Equipe 1
+# Presentation inspiree de l'exemple AD_Timer0_N.c
 BasedOnStyle: LLVM
 Language: Cpp
-Standard: Cpp11
 IndentWidth: 4
 TabWidth: 4
 UseTab: Never
 ColumnLimit: 100
-BreakBeforeBraces: Attach
+BreakBeforeBraces: Allman
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
-AllowShortFunctionsOnASingleLine: None
 AllowShortBlocksOnASingleLine: Never
-IndentCaseLabels: true
+AllowShortFunctionsOnASingleLine: None
+AllowShortCaseLabelsOnASingleLine: false
+IndentCaseLabels: false
 PointerAlignment: Right
 SpaceBeforeParens: ControlStatements
+SpaceAfterCStyleCast: false
 SortIncludes: Never
