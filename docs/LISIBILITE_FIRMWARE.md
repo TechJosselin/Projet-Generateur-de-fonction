@@ -1,41 +1,62 @@
 # Lisibilite du firmware — Equipe 1
 
 ## Objectif
-Rendre le firmware lisible pour une revue humaine, sans changer le comportement du materiel.
 
-## Modules
-- `src/main.c` : entree de l'application.
-- `src/initialisation.c`, `src/integration_esp32.c` : demarrage et raccordement ESP-IDF.
-- `src/integration.c` : coordination des sous-systemes et etats de fonctionnement.
-- `src/signaux.c` : catalogue des signaux et parametres.
-- `src/analogique.c` : calibration et calcul des commandes analogiques.
-- `src/ad9833.c`, `src/epot.c` : pilotes du generateur DDS et des potentiometres.
-- `src/eeprom.c`, `src/stockage.c` : persistance des reglages.
-- `src/usb_protocol.c`, `src/usb_service.c`, `src/usb_transport.c` : trames, commandes et liaison serie.
-- `src/menu.c`, `src/oled.c`, `src/encodeur.c` : interface locale.
-- `src/sorties_digitales.c` : sorties logiques.
+Le firmware du generateur de fonctions est presente suivant l'exemple
+`AD_Timer0_N.c` : sections identifiables, commentaires de fonctions,
+indentation stable et conditions clairement visibles.
 
-## Regles de lecture et de modification
-1. Preferer une instruction par ligne et des blocs `if` / `else` explicites.
-2. Utiliser des noms qui decrivent les grandeurs et leurs unites, sans changer arbitrairement les interfaces publiques.
-3. Garder visibles les differents chemins d'erreur, en particulier en cas d'echec I2C/SPI/EEPROM.
-4. Ne pas modifier sans tests la sequence d'arret du DDS, la politique de sauvegarde, les commandes analogiques et la gestion du protocole USB.
-5. Commenter la raison d'une restriction ou d'un calcul, et non repeter ce que dit chaque instruction.
+Cette refonte a pour but la **lecture humaine du C**, sans modification volontaire
+des exigences electriques ni du protocole fonctionnel.
 
-## Formatage reproductible
-Une configuration `.clang-format` est fournie a la racine du depot.
-Depuis la racine, apres installation de clang-format :
+## Perimetre realise
 
-```sh
-clang-format -i EQ1_Projet_Generateur_Fonction/src/*.c EQ1_Projet_Generateur_Fonction/include/*.h
-```
+- Les **20 modules `src/*.c`** sont restructures (accolades sur leur ligne, indentation de quatre espaces, instructions aerées).
+- Les expressions conditionnelles `?:` des modules C ont ete converties en `if / else` explicites.
+- Les principaux points d'entree et les fonctions critiques sont accompagnes d'un descriptif.
+- Les en-tetes `include/*.h` compactes sont presentes sur plusieurs lignes.
+- `include/initialisation.h` a ete conserve : ses commentaires et sa structure etaient deja conformes au style souhaite.
+- `include/hardware_config.h` est volontairement conserve intact : un changement non commite a ete detecte dans la copie de travail locale.
 
-Ce formatage additionnel doit etre effectue dans un commit distinct. Il n'a pas ete execute automatiquement lors de cette passe.
+## Architecture du code
+
+| Module | Responsabilite |
+| --- | --- |
+| `main.c`, `initialisation.c`, `integration_esp32.c` | Demarrage ESP32-C6 et raccordement ESP-IDF |
+| `integration.c` | Coordination du systeme et des sequences de securite |
+| `signaux.c` | Catalogue des dix signaux initiaux et edition en RAM |
+| `analogique.c` | Calibration et calcul gain / offset |
+| `ad9833.c`, `epot.c` | DDS et potentiometres numeriques |
+| `eeprom.c`, `stockage.c` | Ecriture, lecture et verification de la persistance |
+| `usb_protocol.c`, `usb_service.c`, `usb_transport.c` | Dialogue USB serie |
+| `menu.c`, `oled.c`, `encodeur.c`, `entree.c` | Interface utilisateur |
+| `sorties_digitales.c` | Sorties PWM de l'ESP32 |
+
+## Conventions de presentation
+
+1. Une instruction par ligne, avec indentation de quatre espaces.
+2. Les blocs `if`, `else`, `for` et `while` portent explicitement des accolades.
+3. Les accolades des fonctions et des blocs commencent sur une ligne distincte (style Allman).
+4. Les fonctions principales comportent un bandeau de commentaire indiquant leur role.
+5. Les commentaires expliquent en priorite les choix electroniques, limites, temporisations et effets de bord.
+6. Les noms publics et les constantes du protocole sont conserves pour ne pas casser les dependances.
+
+La racine du depot contient un fichier `.clang-format` correspondant a cette convention.
+Pour uniformiser ulterieurement la presentation des nouveaux changements,
+utiliser `clang-format` dans un **commit distinct**, puis faire une revue des differences.
+
+Les fichiers `tools/refactor_readability.js` et `tools/convert_ternaries.js` conservent
+la trace des transformations de migration initiales. Ce ne sont pas des services du
+firmware et ils n'ont pas vocation a etre executes au demarrage.
 
 ## Verification avant fusion
-- Compiler le firmware avec PlatformIO et ESP-IDF pour `seeed_xiao_esp32c6`.
-- Executer les tests natifs du depot / la CI GitHub.
-- Comparer le comportement du menu, des sorties, de la memoire EEPROM et des trames USB avec `main`.
-- Verifier sur carte les signaux et les etats d'erreur.
 
-La refonte est une **mise en lisibilite** et ne constitue pas une validation du fonctionnement electronique ou du respect du cahier des charges.
+- Tests unitaires natifs et controles ASan / UBSan sur GitHub Actions.
+- Compilation ESP32-C6 avec PlatformIO / ESP-IDF.
+- Essais sur carte : demarrage, arret DDS, selection des profils, EEPROM, EPOT, ecran et commandes USB.
+- Comparaison fonctionnelle avec la branche `main` sur le materiel reel.
+
+Pull request de revue : https://github.com/TechJosselin/Projet-Generateur-de-fonction/pull/2
+
+**Important :** une compilation ou des tests natifs reussis ne valident pas a eux seuls
+les amplitudes, les offsets, la calibration analogique ou les comportements sur carte.
